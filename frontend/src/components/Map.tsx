@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
+import InvestigationPanel, { type HotspotProperties } from './InvestigationPanel';
+
+// ─── Fallback demo data ───────────────────────────────────────────────────────
 
 const FALLBACK_FIRES = {
   type: 'FeatureCollection',
@@ -18,6 +21,15 @@ const FALLBACK_FIRES = {
         confidence: 'High',
         classification_confidence: 0.99,
         distance_to_industrial: 0,
+        alert_status: 'new',
+        satellite: 'DEMO',
+        observed_at: '2024-01-15T06:30:00Z',
+        explanation: 'Hotspot is persistent and located very close to an industrial facility, strongly indicating an industrial flare or fire.',
+        evidence: [
+          'Distance to industrial zone is 0m (<= 1000m).',
+          'Hotspot is persistent (observed for 7 days, 12 times).',
+          "Located within 1km of industrial zone of type 'Refinery'.",
+        ],
       },
     },
     {
@@ -32,6 +44,14 @@ const FALLBACK_FIRES = {
         confidence: 'Nominal',
         classification_confidence: 0.85,
         distance_to_industrial: 8000,
+        alert_status: 'new',
+        satellite: 'DEMO',
+        observed_at: '2024-01-15T06:30:00Z',
+        explanation: 'Hotspot is far from industrial areas and lacks long-term persistence, consistent with a natural vegetation fire.',
+        evidence: [
+          'Distance to industrial zone is 8000m (> 1000m).',
+          'Not persistent and located far (>2km) from known industrial infrastructure.',
+        ],
       },
     },
     {
@@ -46,6 +66,14 @@ const FALLBACK_FIRES = {
         confidence: 'Low',
         classification_confidence: 0.50,
         distance_to_industrial: 2000,
+        alert_status: 'new',
+        satellite: 'DEMO',
+        observed_at: '2024-01-15T06:30:00Z',
+        explanation: 'Evidence is conflicting, borderline, or insufficient to confidently classify as natural or industrial.',
+        evidence: [
+          'Distance to industrial zone is 2000m (> 1000m).',
+          'Located in the buffer zone (1km - 2km) from industrial areas.',
+        ],
       },
     },
   ],
@@ -69,28 +97,35 @@ const FALLBACK_ZONES = {
   ],
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const getClassColor = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare') return '#ef4444';
-  if (cls === 'Gas Flare') return '#f97316';
-  if (cls === 'Natural/Vegetation') return '#22c55e';
+  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return '#ef4444';
+  if (cls === 'Gas Flare' || cls === 'gas_flare') return '#f97316';
+  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return '#22c55e';
   return '#eab308';
 };
 
 const getLabel = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare') return 'IND';
-  if (cls === 'Gas Flare') return 'FLR';
-  if (cls === 'Natural/Vegetation') return 'NAT';
+  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return 'IND';
+  if (cls === 'Gas Flare' || cls === 'gas_flare') return 'FLR';
+  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return 'NAT';
   return '?';
 };
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MarkerEntry {
   id: number;
   lat: number;
   lng: number;
   classification: string;
+  properties: HotspotProperties;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   marker: any;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MapComponent() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -99,13 +134,20 @@ export default function MapComponent() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const haloRef = useRef<any>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
 
+  const handleClose = useCallback(() => {
+    setSelectedId(null);
+    setSelectedProps(null);
+  }, []);
+
+  // ── Map init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainer.current) return;
-
     let cancelled = false;
 
     const initMap = async () => {
@@ -116,7 +158,6 @@ export default function MapComponent() {
       const L = await import('leaflet');
       await import('leaflet/dist/leaflet.css');
 
-      // Re-check after every await — StrictMode may have unmounted in between
       if (cancelled || !mapContainer.current) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((mapContainer.current as any)._leaflet_id) return;
@@ -125,7 +166,7 @@ export default function MapComponent() {
       if (cancelled) { map.remove(); return; }
       mapRef.current = map;
 
-      // Dark CartoDB tiles — free, no token required
+      // CartoDB Dark Matter — free, no token
       L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         {
@@ -170,44 +211,42 @@ export default function MapComponent() {
       // Hotspot markers
       firesData.features.forEach((feature) => {
         const [lng, lat] = (feature.geometry as { type: string; coordinates: number[] }).coordinates;
-        const p = feature.properties || {};
+        const p = (feature.properties || {}) as HotspotProperties;
         const color = getClassColor(p.classification || '');
         const label = getLabel(p.classification || '');
 
         const icon = L.divIcon({
           className: '',
           html: `<div style="
-            width:28px; height:28px;
+            width:30px; height:30px;
             background:${color};
             border:2px solid #000;
             border-radius:50%;
             display:flex; align-items:center; justify-content:center;
             font-size:9px; font-weight:bold; color:#fff;
             font-family:sans-serif;
-            box-shadow:0 0 4px rgba(0,0,0,0.8);
+            box-shadow:0 0 6px rgba(0,0,0,0.9);
+            cursor:pointer;
           ">${label}</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
         });
 
         const marker = L.marker([lat, lng], { icon }).addTo(map);
 
-        marker.bindPopup(`
-          <div style="min-width:200px;font-family:sans-serif;padding:4px;">
-            <h3 style="font-weight:bold;font-size:1rem;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:8px;">
-              ${p.classification || 'Unknown'}
-            </h3>
-            <p><strong>Confidence:</strong> ${p.confidence} (${p.classification_confidence ? Math.round(p.classification_confidence * 100) : 0}%)</p>
-            <p><strong>FRP:</strong> ${p.frp} MW</p>
-            <p><strong>Temp:</strong> ${p.temperature}K</p>
-            <p><strong>Dist to Industrial:</strong> ${p.distance_to_industrial ? Math.round(p.distance_to_industrial) + ' m' : 'N/A'}</p>
-          </div>
-        `);
+        marker.on('click', () => {
+          setSelectedId(p.id ?? null);
+          setSelectedProps(p);
+        });
 
-        marker.on('click', () => setSelectedId(p.id));
-        marker.on('popupclose', () => setSelectedId(null));
-
-        markersRef.current.push({ id: p.id, lat, lng, classification: p.classification || '', marker });
+        markersRef.current.push({
+          id: p.id ?? 0,
+          lat,
+          lng,
+          classification: p.classification || '',
+          properties: p,
+          marker,
+        });
       });
 
       if (!cancelled) setLoading(false);
@@ -224,18 +263,16 @@ export default function MapComponent() {
     };
   }, []);
 
-
-
-
-  // Filter markers
+  // ── Filter markers ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
     markersRef.current.forEach(({ marker, classification }) => {
       let show = filter === 'All';
       if (!show) {
-        if (filter === 'Industrial' && (classification === 'Industrial Fire/Flare' || classification === 'Gas Flare')) show = true;
-        if (filter === 'Natural' && classification === 'Natural/Vegetation') show = true;
-        if (filter === 'Unknown' && classification === 'Unknown/Uncertain') show = true;
+        const n = classification;
+        if (filter === 'Industrial' && (n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare' || n === 'Gas Flare' || n === 'gas_flare')) show = true;
+        if (filter === 'Natural' && (n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       if (show) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -246,7 +283,7 @@ export default function MapComponent() {
     });
   }, [filter]);
 
-  // 1km halo on selected hotspot
+  // ── 1 km halo ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
     haloRef.current?.remove();
@@ -255,42 +292,47 @@ export default function MapComponent() {
     if (selectedId !== null) {
       const entry = markersRef.current.find((m) => m.id === selectedId);
       if (entry) {
-        const initHalo = async () => {
+        (async () => {
           const L = await import('leaflet');
           haloRef.current = L.circle([entry.lat, entry.lng], {
             radius: 1000,
             color: '#ffffff',
             fillColor: '#ffffff',
-            fillOpacity: 0.08,
+            fillOpacity: 0.06,
             weight: 2,
             dashArray: '6 4',
           }).addTo(mapRef.current);
-        };
-        initHalo().catch(console.error);
+        })().catch(console.error);
       }
     }
   }, [selectedId]);
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="relative h-full w-full min-h-[600px] bg-zinc-950">
+      {/* Map loading overlay */}
       {loading && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 text-white backdrop-blur-sm">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-blue-500" />
-          <p className="text-lg font-medium">Loading Map Data...</p>
+          <p className="text-lg font-medium">Loading Map Data…</p>
         </div>
       )}
 
+      {/* Leaflet container */}
       <div ref={mapContainer} className="absolute inset-0" style={{ zIndex: 0 }} />
 
+      {/* Controls (top-left) */}
       {!loading && (
         <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-4">
           {/* Filters */}
-          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex gap-2">
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex gap-2 flex-wrap">
             {['All', 'Industrial', 'Natural', 'Unknown'].map((f) => (
               <button
                 key={f}
+                id={`filter-btn-${f.toLowerCase()}`}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1 rounded-md transition-colors ${
+                aria-pressed={filter === f}
+                className={`px-3 py-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
                   filter === f
                     ? 'bg-blue-600 text-white font-medium'
                     : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
@@ -302,25 +344,43 @@ export default function MapComponent() {
           </div>
 
           {/* Legend */}
-          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-48">
-            <h4 className="font-bold mb-2 text-white">Legend</h4>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span>Industrial Fire/Flare</span></div>
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span>Gas Flare</span></div>
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span>Natural/Vegetation</span></div>
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span>Unknown</span></div>
-              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-700">
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52">
+            <h4 className="font-bold mb-2 text-white text-xs uppercase tracking-wide">Legend</h4>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Flare</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span className="text-xs">Gas Flare</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span className="text-xs">Natural/Vegetation</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span className="text-xs">Unknown/Uncertain</span></div>
+              <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">
                 <div className="w-5 h-4 bg-slate-600 opacity-50 border-2 border-slate-800 shrink-0"></div>
-                <span>Industrial Zone</span>
+                <span className="text-xs">Industrial Zone</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 rounded-full border-2 border-white border-dashed bg-white/10 shrink-0"></div>
-                <span>1km Halo (click to select)</span>
+                <span className="text-xs">1 km Halo (selected)</span>
               </div>
             </div>
           </div>
+
+          {/* Clear selection hint */}
+          {selectedId !== null && (
+            <button
+              onClick={handleClose}
+              id="clear-selection-btn"
+              className="bg-zinc-800/90 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors backdrop-blur focus:outline-none focus:ring-2 focus:ring-zinc-500 text-left"
+            >
+              ✕ Clear selection (Esc)
+            </button>
+          )}
         </div>
       )}
+
+      {/* Investigation Panel (right-side drawer) */}
+      <InvestigationPanel
+        selectedId={selectedId}
+        fallbackProps={selectedProps}
+        onClose={handleClose}
+      />
     </div>
   );
 }
