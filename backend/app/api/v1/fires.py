@@ -66,7 +66,11 @@ async def get_fires(
                 "subclass": cls_output.subclass,
                 "classification_confidence": cls_output.confidence,
                 "evidence": cls_output.evidence,
-                "explanation": cls_output.explanation
+                "explanation": cls_output.explanation,
+                "distance_to_industrial": row['distance_to_nearest_facility'],
+                "facility_type": row['nearest_facility_type'],
+                "days_observed": row['days_observed'],
+                "observation_count": row['observation_count']
             }
         }
         features.append(feature)
@@ -130,6 +134,10 @@ async def get_fire(fire_id: int, request: Request):
             "subclass": cls_output.subclass,
             "classification_confidence": cls_output.confidence,
             "evidence": cls_output.evidence,
-            "explanation": cls_output.explanation
+            "explanation": cls_output.explanation,
+            "distance_to_industrial": row['distance_to_nearest_facility'],
+            "facility_type": row['nearest_facility_type'],
+            "days_observed": row['days_observed'],
+            "observation_count": row['observation_count']
         }
     }
