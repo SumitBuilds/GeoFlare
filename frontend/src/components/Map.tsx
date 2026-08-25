@@ -139,6 +139,8 @@ export default function MapComponent() {
   const [filter, setFilter] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
+  const [dates, setDates] = useState<string[]>([]);
+  const [currentDateIdx, setCurrentDateIdx] = useState<number>(0);
 
   const handleClose = useCallback(() => {
     setSelectedId(null);
@@ -249,7 +251,17 @@ export default function MapComponent() {
         });
       });
 
-      if (!cancelled) setLoading(false);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const uniqueDates = Array.from(new Set(firesData.features.map((f: any) => {
+        const obs = f.properties?.observed_at;
+        return obs ? obs.substring(0, 10) : new Date().toISOString().substring(0, 10);
+      }))).sort();
+
+      if (!cancelled) {
+        setDates(uniqueDates);
+        setCurrentDateIdx(uniqueDates.length - 1);
+        setLoading(false);
+      }
     };
 
     initMap().catch(console.error);
@@ -266,7 +278,9 @@ export default function MapComponent() {
   // ── Filter markers ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
-    markersRef.current.forEach(({ marker, classification }) => {
+    const activeDateStr = dates[currentDateIdx] || '';
+    
+    markersRef.current.forEach(({ marker, classification, properties }) => {
       let show = filter === 'All';
       if (!show) {
         const n = classification;
@@ -274,6 +288,13 @@ export default function MapComponent() {
         if (filter === 'Natural' && (n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
+      
+      // Date filter logic
+      if (show && activeDateStr) {
+        const obs = properties.observed_at ? properties.observed_at.substring(0, 10) : '';
+        if (obs > activeDateStr) show = false;
+      }
+      
       if (show) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (!mapRef.current.hasLayer(marker)) marker.addTo(mapRef.current as any);
@@ -281,7 +302,7 @@ export default function MapComponent() {
         marker.remove();
       }
     });
-  }, [filter]);
+  }, [filter, currentDateIdx, dates]);
 
   // ── 1 km halo ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -307,9 +328,8 @@ export default function MapComponent() {
     }
   }, [selectedId]);
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="relative h-full w-full min-h-[600px] bg-zinc-950">
+    <div className="absolute inset-0 bg-zinc-950">
       {/* Map loading overlay */}
       {loading && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 text-white backdrop-blur-sm">
@@ -372,6 +392,30 @@ export default function MapComponent() {
               ✕ Clear selection (Esc)
             </button>
           )}
+        </div>
+      )}
+
+      {/* Timeline Slider (bottom-center) */}
+      {!loading && dates.length > 0 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-lg px-4">
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-xl p-4 shadow-xl backdrop-blur flex flex-col gap-2 pointer-events-auto">
+            <div className="flex justify-between items-center mb-1">
+              <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">Timeline Playback</h4>
+              <span className="text-sm font-bold text-white bg-zinc-800 px-2 py-0.5 rounded">{dates[currentDateIdx]}</span>
+            </div>
+            <input 
+              type="range" 
+              min={0} 
+              max={dates.length - 1} 
+              value={currentDateIdx}
+              onChange={(e) => setCurrentDateIdx(Number(e.target.value))}
+              className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-500 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
+            />
+            <div className="flex justify-between text-[10px] text-zinc-500 font-medium px-1">
+              <span>{dates[0]}</span>
+              <span>{dates[dates.length - 1]}</span>
+            </div>
+          </div>
         </div>
       )}
 

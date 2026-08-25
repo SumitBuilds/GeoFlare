@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import AlertCenter from '@/components/AlertCenter';
-import { MapIcon, Bell } from 'lucide-react';
+import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+import { MapIcon, Bell, BarChart } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -17,7 +18,7 @@ const Map = dynamic(() => import('@/components/Map'), {
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'map' | 'alerts'>('map');
+  const [activeTab, setActiveTab] = useState<'map' | 'alerts' | 'analytics'>('map');
   
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -62,6 +63,15 @@ export default function Home() {
               <Bell className="h-4 w-4" />
               Alert Center
             </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
+                activeTab === 'analytics' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              }`}
+            >
+              <BarChart className="h-4 w-4" />
+              Analytics
+            </button>
           </div>
         </div>
 
@@ -94,11 +104,22 @@ export default function Home() {
             <Bell className="h-4 w-4" />
             Alerts
           </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`flex-1 flex justify-center items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === 'analytics' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400'
+            }`}
+          >
+            <BarChart className="h-4 w-4" />
+            Analytics
+          </button>
         </div>
       </div>
 
       <main className="flex-1 relative overflow-y-auto" suppressHydrationWarning>
-        {activeTab === 'map' ? <Map /> : <AlertCenter />}
+        {activeTab === 'map' && <Map />}
+        {activeTab === 'alerts' && <AlertCenter />}
+        {activeTab === 'analytics' && <AnalyticsDashboard />}
       </main>
     </div>
   );
