@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_USER: geoflare_user
+      POSTGRES_PASSWORD: geoflare_password
+      POSTGRES_DB: geoflare
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+
+volumes:
+  postgis_data:
