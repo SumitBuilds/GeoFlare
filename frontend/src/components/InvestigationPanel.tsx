@@ -62,6 +62,28 @@ export interface HotspotProperties {
   [key: string]: unknown;
 }
 
+export interface GeographicAsset {
+  id: string;
+  name: string;
+  asset_type: string;
+  latitude: number;
+  longitude: number;
+  distance_m: number;
+  inside_impact_radius: boolean;
+  downwind: boolean;
+  source: string;
+  is_demo: boolean;
+}
+
+export interface ImpactContext {
+  event_id: string;
+  assets: GeographicAsset[];
+  impact_radius_m: number;
+  source_status: string;
+  is_demo: boolean;
+  data_quality_flags: string[];
+}
+
 interface InvestigationPanelProps {
   selectedId: number | null;
   /** Properties already stored in the map marker — used as fallback while fetching */
@@ -69,6 +91,13 @@ interface InvestigationPanelProps {
   onClose: () => void;
   showWind?: boolean;
   onToggleWind?: (show: boolean) => void;
+  showAssets?: boolean;
+  onToggleAssets?: (show: boolean) => void;
+  impactData?: ImpactContext | null;
+  impactLoading?: boolean;
+  impactError?: string | null;
+  selectedAssetId?: string | null;
+  onAssetClick?: (asset: GeographicAsset) => void;
 }
 
 // ─── Normalisation helpers ────────────────────────────────────────────────────
@@ -169,6 +198,13 @@ export default function InvestigationPanel({
   onClose,
   showWind = false,
   onToggleWind,
+  showAssets = false,
+  onToggleAssets,
+  impactData,
+  impactLoading = false,
+  impactError,
+  selectedAssetId,
+  onAssetClick,
 }: InvestigationPanelProps) {
   const [data, setData] = useState<HotspotProperties | null>(null);
   const [fetchLoading, setFetchLoading] = useState(false);
@@ -403,6 +439,69 @@ export default function InvestigationPanel({
             <Row label="Facility Type" value={fmt(facilityType)} />
             <Row label="Distance to Industrial Zone" value={dist !== undefined && dist !== null ? `${Math.round(dist)} m` : 'Not available'} />
             <Row label="Within 1 km Halo" value={withinHalo} />
+
+            <SectionHead title="Potential Impact Context" />
+            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2">
+              <div className="text-[10px] text-yellow-500 font-bold mb-1">
+                This is an indicative geospatial assessment and is not an official evacuation instruction.
+              </div>
+              
+              <div className="flex justify-center">
+                <button
+                  onClick={() => onToggleAssets && onToggleAssets(!showAssets)}
+                  disabled={impactLoading}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                    showAssets 
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-inner' 
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  } disabled:opacity-50`}
+                >
+                  {impactLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
+                  ) : null}
+                  {showAssets ? 'Hide Nearby Assets' : 'Show Nearby Assets'}
+                </button>
+              </div>
+
+              {impactError && (
+                <p className="text-xs text-red-400 mt-1">{impactError}</p>
+              )}
+
+              {showAssets && impactData && (
+                <div className="mt-2 space-y-1">
+                   {impactData.is_demo && (
+                     <div className="text-[10px] text-yellow-500 font-bold mb-1">
+                        Demo geographic context — not verified live data.
+                     </div>
+                   )}
+                   <Row label="Source" value={impactData.source_status} />
+                   <div className="pt-1 border-t border-zinc-800 mt-2">
+                      <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Total Visible Assets: {impactData.assets.length}</p>
+                      
+                      <div className="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                        {impactData.assets.map(asset => (
+                          <div 
+                             key={asset.id} 
+                             onClick={() => onAssetClick && onAssetClick(asset)}
+                             className={`text-xs p-1.5 rounded cursor-pointer border ${selectedAssetId === asset.id ? 'border-purple-500 bg-purple-500/20' : 'border-transparent bg-zinc-900 hover:bg-zinc-800'} ${asset.downwind ? 'border-l-2 border-l-blue-500' : ''}`}
+                          >
+                             <div className="flex justify-between items-start">
+                                <span className="font-semibold text-zinc-200">{asset.name}</span>
+                                <span className="text-zinc-500">{asset.distance_m}m</span>
+                             </div>
+                             <div className="text-[10px] text-zinc-400 mt-0.5 flex flex-wrap gap-1">
+                                <span className="bg-zinc-800 px-1 rounded uppercase">{asset.asset_type}</span>
+                                {asset.inside_impact_radius && <span className="bg-red-900/30 text-red-400 px-1 rounded border border-red-900/50">Inside Radius</span>}
+                                {asset.downwind && <span className="bg-blue-900/30 text-blue-400 px-1 rounded border border-blue-900/50">Downwind</span>}
+                             </div>
+                          </div>
+                        ))}
+                        {impactData.assets.length === 0 && <p className="text-xs text-zinc-500">No assets found.</p>}
+                      </div>
+                   </div>
+                </div>
+              )}
+            </div>
 
             <SectionHead title="Evidence" />
             {Array.isArray(p.evidence) && p.evidence.length > 0 ? (

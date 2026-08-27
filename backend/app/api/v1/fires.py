@@ -210,3 +210,34 @@ async def get_fire(fire_id: int, request: Request):
             "weather": weather.model_dump()
         }
     }
+
+@router.get("/{fire_id}/impact")
+async def get_fire_impact(request: Request, fire_id: int, radius_m: float = 1000.0):
+    """
+    Returns potential impact context including nearby assets and downwind status.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT id, latitude, longitude, observed_at, first_observed_at
+            FROM hotspots
+            WHERE id = $1
+        """, fire_id)
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Fire not found")
+        
+    # Get weather to determine wind direction
+    from app.engine.assets import get_impact_context
+    weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
+    wind_dir = weather.wind_direction if weather else None
+    
+    impact = get_impact_context(
+        event_id=str(fire_id),
+        lat=row['latitude'],
+        lon=row['longitude'],
+        radius_m=radius_m,
+        wind_dir=wind_dir
+    )
+    
+    return impact.model_dump()

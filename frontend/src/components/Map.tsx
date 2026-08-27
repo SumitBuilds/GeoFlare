@@ -70,12 +70,23 @@ export default function MapComponent() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const windLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const assetsLayerRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
   const [showWind, setShowWind] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
+  const [showImpactRadius, setShowImpactRadius] = useState(true);
+  const [showDownwindOnly, setShowDownwindOnly] = useState(false);
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [impactData, setImpactData] = useState<any | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [currentDateIdx, setCurrentDateIdx] = useState<number>(0);
   const [hasNoData, setHasNoData] = useState(false);
@@ -84,6 +95,12 @@ export default function MapComponent() {
     setSelectedId(null);
     setSelectedProps(null);
     setShowWind(false);
+    setShowAssets(false);
+    setShowImpactRadius(true);
+    setShowDownwindOnly(false);
+    setImpactData(null);
+    setImpactError(null);
+    setSelectedAssetId(null);
   }, []);
 
   // ── Map init ──────────────────────────────────────────────────────────────
@@ -263,19 +280,20 @@ export default function MapComponent() {
     });
   }, [filter, currentDateIdx, dates]);
 
-  // ── 1 km halo ─────────────────────────────────────────────────────────────
+  // ── Impact Radius Halo ────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
     haloRef.current?.remove();
     haloRef.current = null;
 
-    if (selectedId !== null) {
+    if (selectedId !== null && showImpactRadius) {
       const entry = markersRef.current.find((m) => m.id === selectedId);
       if (entry) {
         (async () => {
           const L = await import('leaflet');
+          const radius = impactData?.impact_radius_m || 1000;
           haloRef.current = L.circle([entry.lat, entry.lng], {
-            radius: 1000,
+            radius: radius,
             color: '#ffffff',
             fillColor: '#ffffff',
             fillOpacity: 0.06,
@@ -285,7 +303,7 @@ export default function MapComponent() {
         })().catch(console.error);
       }
     }
-  }, [selectedId]);
+  }, [selectedId, showImpactRadius, impactData]);
 
   // ── Wind & Corridor ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -352,6 +370,107 @@ export default function MapComponent() {
     }
   }, [showWind, selectedProps, selectedId]);
 
+  // ── Impact Data Fetch ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (showAssets && selectedId !== null) {
+      setImpactLoading(true);
+      setImpactError(null);
+      fetch(`http://localhost:8000/api/v1/fires/${selectedId}/impact`)
+        .then((res) => {
+          if (!res.ok) throw new Error('Failed to fetch impact data');
+          return res.json();
+        })
+        .then((data) => {
+          setImpactData(data);
+          setImpactLoading(false);
+        })
+        .catch((err) => {
+          console.error(err);
+          setImpactError('Unable to load nearby assets.');
+          setImpactLoading(false);
+        });
+    } else {
+      setImpactData(null);
+      setImpactError(null);
+    }
+  }, [showAssets, selectedId]);
+
+  // ── Render Nearby Assets ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    assetsLayerRef.current?.remove();
+    assetsLayerRef.current = null;
+
+    if (showAssets && impactData) {
+      (async () => {
+        const L = await import('leaflet');
+        const layers: any[] = [];
+
+        impactData.assets.forEach((asset: any) => {
+          if (showDownwindOnly && !asset.downwind) return;
+          const isSelected = asset.id === selectedAssetId;
+          
+          let iconHtml = '';
+          const type = asset.asset_type;
+          const bg = asset.downwind ? '#ef4444' : '#6b7280'; // red if downwind, gray if not
+          const border = isSelected ? 'border: 2px solid #a855f7;' : 'border: 2px solid #000;';
+          
+          // Emojis based on asset type
+          let emoji = '🏢';
+          if (type === 'school') emoji = '🏫';
+          else if (type === 'hospital' || type === 'clinic') emoji = '🏥';
+          else if (type === 'residential') emoji = '🏠';
+          else if (type === 'road') emoji = '🛣️';
+          else if (type === 'railway') emoji = '🛤️';
+          else if (type === 'power') emoji = '⚡';
+          else if (type === 'fuel') emoji = '⛽';
+          else if (type === 'chemical') emoji = '🏭';
+          else if (type === 'fire_station') emoji = '🚒';
+          else if (type === 'police') emoji = '🚓';
+          
+          iconHtml = `<div style="
+            width:24px; height:24px;
+            background:${bg};
+            ${border}
+            border-radius:50%;
+            display:flex; align-items:center; justify-content:center;
+            font-size:12px;
+            box-shadow:${isSelected ? '0 0 10px #a855f7' : '0 0 4px rgba(0,0,0,0.8)'};
+            ${asset.inside_impact_radius && !isSelected ? 'box-shadow: 0 0 8px #ef4444;' : ''}
+          ">${emoji}</div>`;
+
+          const icon = L.divIcon({
+            className: '',
+            html: iconHtml,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          });
+
+          const marker = L.marker([asset.latitude, asset.longitude], { icon });
+          marker.bindPopup(`
+            <div style="font-family:sans-serif;font-size:12px;color:#333;">
+              <strong style="font-size:14px">${asset.name}</strong><br/>
+              <span style="text-transform:uppercase;color:#666;font-size:10px">${asset.asset_type}</span><br/>
+              Distance: <b>${asset.distance_m}m</b><br/>
+              ${asset.inside_impact_radius ? '<span style="color:red;font-weight:bold">Inside Impact Radius</span><br/>' : ''}
+              ${asset.downwind ? '<span style="color:red;font-weight:bold">Downwind</span><br/>' : ''}
+              <i style="font-size:9px;color:#888">${asset.source} ${asset.is_demo ? '(Demo)' : ''}</i>
+            </div>
+          `);
+          
+          // Clicking marker on map selects it in panel
+          marker.on('click', () => {
+             setSelectedAssetId(asset.id);
+          });
+          
+          layers.push(marker);
+        });
+
+        assetsLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+      })();
+    }
+  }, [showAssets, impactData, selectedAssetId]);
+
   return (
     <div className="absolute inset-0 bg-zinc-950">
       {/* Map loading overlay */}
@@ -400,14 +519,30 @@ export default function MapComponent() {
             ))}
           </div>
 
+          {/* Impact/Asset Filters (only shown if assets are active) */}
+          {showAssets && (
+             <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex flex-col gap-2">
+                <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Impact Controls</h4>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+                  <input type="checkbox" checked={showImpactRadius} onChange={(e) => setShowImpactRadius(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-purple-500 focus:ring-purple-500 focus:ring-offset-zinc-900" />
+                  Show Impact Radius
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+                  <input type="checkbox" checked={showDownwindOnly} onChange={(e) => setShowDownwindOnly(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-purple-500 focus:ring-purple-500 focus:ring-offset-zinc-900" />
+                  Only Show Downwind Assets
+                </label>
+             </div>
+          )}
+
           {/* Legend */}
-          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52">
-            <h4 className="font-bold mb-2 text-white text-xs uppercase tracking-wide">Legend</h4>
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52 max-h-[40vh] overflow-y-auto custom-scrollbar">
+            <h4 className="font-bold mb-2 text-white text-[10px] uppercase tracking-wide">Legend</h4>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Flare</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span className="text-xs">Gas Flare</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span className="text-xs">Natural/Vegetation</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span className="text-xs">Unknown/Uncertain</span></div>
+              
               <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">
                 <div className="w-5 h-4 bg-slate-600 opacity-50 border-2 border-slate-800 shrink-0"></div>
                 <span className="text-xs">Industrial Zone</span>
@@ -416,6 +551,23 @@ export default function MapComponent() {
                 <div className="w-5 h-5 rounded-full border-2 border-white border-dashed bg-white/10 shrink-0"></div>
                 <span className="text-xs">1 km Halo (selected)</span>
               </div>
+
+              {showAssets && (
+                <>
+                  <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">
+                    <div className="w-5 h-5 rounded-full bg-gray-500 border-2 border-black shrink-0 flex items-center justify-center text-[10px]">🏢</div>
+                    <span className="text-xs">Nearby Asset</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-red-500 border-2 border-black shrink-0 flex items-center justify-center text-[10px]">🏢</div>
+                    <span className="text-xs">Downwind Asset</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full border border-red-500 shrink-0 shadow-[0_0_8px_#ef4444]"></div>
+                    <span className="text-xs">Inside Impact Radius</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -463,6 +615,13 @@ export default function MapComponent() {
         onClose={handleClose}
         showWind={showWind}
         onToggleWind={setShowWind}
+        showAssets={showAssets}
+        onToggleAssets={setShowAssets}
+        impactData={impactData}
+        impactLoading={impactLoading}
+        impactError={impactError}
+        selectedAssetId={selectedAssetId}
+        onAssetClick={(asset: any) => setSelectedAssetId(asset.id)}
       />
     </div>
   );
