@@ -20,7 +20,7 @@ async def get_fires(
                 ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
-                h.severity, h.risk_score,
+                h.approx_movement, h.persistence_confidence,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -48,12 +48,16 @@ async def get_fires(
     for row in rows:
         data = HotspotInput(
             temperature=row['temperature'],
+            brightness_temperature=row['brightness_temperature'] or 0.0,
             frp=row['frp'],
             confidence=row['confidence'],
             distance_to_industrial=row['distance_to_nearest_facility'] if row['distance_to_nearest_facility'] is not None else 99999.0,
             days_observed=row['days_observed'],
             observation_count=row['observation_count'],
-            industrial_zone_type=row['nearest_facility_type']
+            industrial_zone_type=row['nearest_facility_type'],
+            approx_movement=row['approx_movement'] or 0.0,
+            persistence_confidence=row['persistence_confidence'] or 0.0,
+            data_quality_flags=row['data_quality']
         )
         cls_output = classify_hotspot(data)
         
@@ -85,6 +89,8 @@ async def get_fires(
                 "facility_type": row['nearest_facility_type'],
                 "days_observed": row['days_observed'],
                 "observation_count": row['observation_count'],
+                "approx_movement": row['approx_movement'],
+                "persistence_confidence": row['persistence_confidence'],
                 "source": row['source'],
                 "processed_at": row['processed_at'].isoformat() if row['processed_at'] else None,
                 "source_event_id": row['source_event_id'],
@@ -92,8 +98,9 @@ async def get_fires(
                 "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
                 "brightness_temperature": row['brightness_temperature'],
                 "data_quality": row['data_quality'],
-                "severity": row['severity'],
-                "risk_score": row['risk_score']
+                "severity": cls_output.severity,
+                "risk_score": cls_output.risk_score,
+                "score_components": cls_output.score_components
             }
         }
         features.append(feature)
@@ -114,7 +121,7 @@ async def get_fire(fire_id: int, request: Request):
                 ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
-                h.severity, h.risk_score,
+                h.approx_movement, h.persistence_confidence,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -144,12 +151,16 @@ async def get_fire(fire_id: int, request: Request):
         
     data = HotspotInput(
         temperature=row['temperature'],
+        brightness_temperature=row['brightness_temperature'] or 0.0,
         frp=row['frp'],
         confidence=row['confidence'],
         distance_to_industrial=row['distance_to_nearest_facility'] if row['distance_to_nearest_facility'] is not None else 99999.0,
         days_observed=row['days_observed'],
         observation_count=row['observation_count'],
-        industrial_zone_type=row['nearest_facility_type']
+        industrial_zone_type=row['nearest_facility_type'],
+        approx_movement=row['approx_movement'] or 0.0,
+        persistence_confidence=row['persistence_confidence'] or 0.0,
+        data_quality_flags=row['data_quality']
     )
     cls_output = classify_hotspot(data)
     
@@ -176,6 +187,8 @@ async def get_fire(fire_id: int, request: Request):
             "facility_type": row['nearest_facility_type'],
             "days_observed": row['days_observed'],
             "observation_count": row['observation_count'],
+            "approx_movement": row['approx_movement'],
+            "persistence_confidence": row['persistence_confidence'],
             "source": row['source'],
             "processed_at": row['processed_at'].isoformat() if row['processed_at'] else None,
             "source_event_id": row['source_event_id'],
@@ -183,7 +196,8 @@ async def get_fire(fire_id: int, request: Request):
             "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
             "brightness_temperature": row['brightness_temperature'],
             "data_quality": row['data_quality'],
-            "severity": row['severity'],
-            "risk_score": row['risk_score']
+            "severity": cls_output.severity,
+            "risk_score": cls_output.risk_score,
+            "score_components": cls_output.score_components
         }
     }

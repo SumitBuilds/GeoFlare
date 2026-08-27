@@ -22,6 +22,8 @@ CREATE TABLE hotspots (
     source VARCHAR(100) NOT NULL,
     severity VARCHAR(50) DEFAULT 'unknown',
     risk_score FLOAT DEFAULT 0.0,
+    approx_movement FLOAT DEFAULT 0.0,
+    persistence_confidence FLOAT DEFAULT 0.0,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

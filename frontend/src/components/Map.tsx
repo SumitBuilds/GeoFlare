@@ -6,6 +6,7 @@ import InvestigationPanel, { type HotspotProperties } from './InvestigationPanel
 
 // ─── Fallback demo data ───────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FALLBACK_FIRES: { type: string; features: any[] } = {
   type: 'FeatureCollection',
   features: [],
@@ -242,8 +243,8 @@ export default function MapComponent() {
       
       // Date filter logic (show if activeDateStr falls between first_observed_at and observed_at)
       if (show && activeDateStr) {
-        const start = properties.first_observed_at ? properties.first_observed_at.substring(0, 10) : '';
-        const end = properties.observed_at ? properties.observed_at.substring(0, 10) : '';
+        const start = properties.first_observed_at ? String(properties.first_observed_at).substring(0, 10) : '';
+        const end = properties.observed_at ? String(properties.observed_at).substring(0, 10) : '';
         if (start && activeDateStr < start) show = false;
         if (end && activeDateStr > end) show = false;
       }

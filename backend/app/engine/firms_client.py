@@ -1,9 +1,10 @@
 import csv
 import io
 import httpx
+import logging
+from datetime import datetime, timedelta
 import asyncio
-from datetime import datetime
-from app.core.config import FIRMS_MAP_KEY, FIRMS_SOURCE, FIRMS_BBOX, FIRMS_DAY_RANGE, FIRMS_TIMEOUT_SECONDS
+from app.core.config import FIRMS_MAP_KEY, FIRMS_SOURCE, FIRMS_BBOX, FIRMS_DAY_RANGE, FIRMS_TIMEOUT_SECONDS, GROUPING_SPATIAL_DISTANCE_M, GROUPING_TIME_WINDOW_DAYS
 import asyncpg
 
 async def fetch_firms_data(pool: asyncpg.Pool, source: str = None, bbox: str = None, day_range: str = None):
@@ -85,27 +86,35 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                     import json
                     raw_metadata = json.dumps({k: v for k, v in row.items()})
                     
-                    # Spatial matching: find existing hotspot within 1000 meters
-                    existing_hotspot_id = await conn.fetchval("""
-                        SELECT id FROM hotspots 
-                        WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($1, $2), 4326), 1000)
+                    # Spatial matching: find existing hotspot within GROUPING_SPATIAL_DISTANCE_M and GROUPING_TIME_WINDOW_DAYS
+                    existing_hotspot = await conn.fetchrow("""
+                        SELECT id, first_observed_at, last_observed_at, observation_count, location 
+                        FROM hotspots 
+                        WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)
+                        AND (last_observed_at >= $4::timestamptz - interval '1 day' * $5)
                         ORDER BY ST_Distance(location, ST_SetSRID(ST_MakePoint($1, $2), 4326)) ASC
                         LIMIT 1
-                    """, lon, lat)
+                    """, lon, lat, GROUPING_SPATIAL_DISTANCE_M, observed_at, GROUPING_TIME_WINDOW_DAYS)
                     
-                    if existing_hotspot_id:
-                        hotspot_id = existing_hotspot_id
+                    if existing_hotspot:
+                        hotspot_id = existing_hotspot['id']
+                        # calculate movement distance
+                        movement = await conn.fetchval("SELECT ST_Distance($1::geography, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography)", existing_hotspot['location'], lon, lat)
+                        
                         await conn.execute("""
                             UPDATE hotspots SET 
                                 last_observed_at = GREATEST(last_observed_at, $2),
                                 first_observed_at = LEAST(first_observed_at, $2),
-                                observation_count = observation_count + 1
+                                observation_count = observation_count + 1,
+                                approx_movement = GREATEST(approx_movement, $3),
+                                days_observed = EXTRACT(DAY FROM (GREATEST(last_observed_at, $2) - LEAST(first_observed_at, $2))) + 1,
+                                persistence_confidence = LEAST((observation_count + 1.0) / (EXTRACT(DAY FROM (GREATEST(last_observed_at, $2) - LEAST(first_observed_at, $2))) + 1.0), 5.0)
                             WHERE id = $1
-                        """, hotspot_id, observed_at)
+                        """, hotspot_id, observed_at, movement)
                     else:
                         hotspot_id = await conn.fetchval("""
-                            INSERT INTO hotspots (location, confidence, satellite, temperature, frp, source, first_observed_at, last_observed_at)
-                            VALUES (ST_SetSRID(ST_MakePoint($1, $2), 4326), $3, $4, $5, $6, $7, $8, $8)
+                            INSERT INTO hotspots (location, confidence, satellite, temperature, frp, source, first_observed_at, last_observed_at, approx_movement, persistence_confidence)
+                            VALUES (ST_SetSRID(ST_MakePoint($1, $2), 4326), $3, $4, $5, $6, $7, $8, $8, 0.0, 1.0)
                             RETURNING id
                         """, lon, lat, confidence, satellite, brightness, frp, f"FIRMS_{source_name}", observed_at)
                     

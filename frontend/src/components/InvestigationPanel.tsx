@@ -334,6 +334,18 @@ export default function InvestigationPanel({
             <Row label="Days Observed" value={fmt(p.days_observed)} />
             <Row label="Observation Count" value={fmt(p.observation_count)} />
             <Row label="Persistence Confidence" value={fmt(p.persistence_confidence)} />
+            <Row label="Approximate Movement" value={p.approx_movement !== undefined && p.approx_movement !== null ? `${p.approx_movement} m` : 'Not available'} />
+
+            <SectionHead title="Risk Assessment" />
+            <Row label="Severity" value={fmt(p.severity)} />
+            <Row label="Risk Score (Prototype Score)" value={p.risk_score !== undefined && p.risk_score !== null ? `${p.risk_score} / 100` : 'Not available'} />
+            {p.score_components && typeof p.score_components === 'object' && (
+              <div className="mt-1 ml-4 border-l-2 border-zinc-700 pl-2">
+                {Object.entries(p.score_components).map(([k, v]) => (
+                  <Row key={k} label={k} value={fmt(v)} />
+                ))}
+              </div>
+            )}
 
             <SectionHead title="Proximity" />
             <Row label="Nearest Facility" value={fmt(p.nearest_facility)} />
