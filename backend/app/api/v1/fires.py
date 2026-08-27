@@ -15,9 +15,12 @@ async def get_fires(
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT 
-                h.id, h.observed_at, ST_AsGeoJSON(h.location)::json as geometry, 
+                h.id, h.last_observed_at as observed_at, h.first_observed_at,
+                ST_Y(h.location::geometry) as latitude, ST_X(h.location::geometry) as longitude,
+                ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
+                h.severity, h.risk_score, h.is_demo,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -30,13 +33,13 @@ async def get_fires(
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
                 ) as distance_to_nearest_facility,
-                o.source_event_id, o.instrument, o.acq_time, o.brightness_temperature, o.data_quality
+                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality
             FROM hotspots h
             LEFT JOIN LATERAL (
-                SELECT source_event_id, instrument, acq_time, brightness_temperature, data_quality
+                SELECT source_event_id, instrument, observed_at, brightness_temperature, data_quality_flags
                 FROM fire_observations
                 WHERE fire_event_id = h.id
-                ORDER BY acq_time DESC NULLS LAST
+                ORDER BY observed_at DESC NULLS LAST
                 LIMIT 1
             ) o ON true
         """)
@@ -64,7 +67,10 @@ async def get_fires(
             "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
             "properties": {
                 "id": row['id'],
+                "first_observed_at": row['first_observed_at'].isoformat() if row['first_observed_at'] else None,
                 "observed_at": row['observed_at'].isoformat() if row['observed_at'] else None,
+                "latitude": row['latitude'],
+                "longitude": row['longitude'],
                 "confidence": row['confidence'],
                 "satellite": row['satellite'],
                 "temperature": row['temperature'],
@@ -85,7 +91,10 @@ async def get_fires(
                 "instrument": row['instrument'],
                 "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
                 "brightness_temperature": row['brightness_temperature'],
-                "data_quality": row['data_quality']
+                "data_quality": row['data_quality'],
+                "severity": row['severity'],
+                "risk_score": row['risk_score'],
+                "is_demo": row['is_demo']
             }
         }
         features.append(feature)
@@ -101,9 +110,12 @@ async def get_fire(fire_id: int, request: Request):
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT 
-                h.id, h.observed_at, ST_AsGeoJSON(h.location)::json as geometry, 
+                h.id, h.last_observed_at as observed_at, h.first_observed_at,
+                ST_Y(h.location::geometry) as latitude, ST_X(h.location::geometry) as longitude,
+                ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
+                h.severity, h.risk_score, h.is_demo,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -116,13 +128,13 @@ async def get_fire(fire_id: int, request: Request):
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
                 ) as distance_to_nearest_facility,
-                o.source_event_id, o.instrument, o.acq_time, o.brightness_temperature, o.data_quality
+                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality
             FROM hotspots h
             LEFT JOIN LATERAL (
-                SELECT source_event_id, instrument, acq_time, brightness_temperature, data_quality
+                SELECT source_event_id, instrument, observed_at, brightness_temperature, data_quality_flags
                 FROM fire_observations
                 WHERE fire_event_id = h.id
-                ORDER BY acq_time DESC NULLS LAST
+                ORDER BY observed_at DESC NULLS LAST
                 LIMIT 1
             ) o ON true
             WHERE h.id = $1
@@ -147,7 +159,10 @@ async def get_fire(fire_id: int, request: Request):
         "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
         "properties": {
             "id": row['id'],
+            "first_observed_at": row['first_observed_at'].isoformat() if row['first_observed_at'] else None,
             "observed_at": row['observed_at'].isoformat() if row['observed_at'] else None,
+            "latitude": row['latitude'],
+            "longitude": row['longitude'],
             "confidence": row['confidence'],
             "satellite": row['satellite'],
             "temperature": row['temperature'],
@@ -168,6 +183,9 @@ async def get_fire(fire_id: int, request: Request):
             "instrument": row['instrument'],
             "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
             "brightness_temperature": row['brightness_temperature'],
-            "data_quality": row['data_quality']
+            "data_quality": row['data_quality'],
+            "severity": row['severity'],
+            "risk_score": row['risk_score'],
+            "is_demo": row['is_demo']
         }
     }

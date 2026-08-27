@@ -18,6 +18,15 @@ def test_get_fires():
         data = response.json()
         assert data["type"] == "FeatureCollection"
         assert len(data["features"]) == 18
+        
+        # Verify Phase 2 fields
+        first_feature = data["features"][0]["properties"]
+        assert "first_observed_at" in first_feature
+        assert "severity" in first_feature
+        assert "risk_score" in first_feature
+        assert "is_demo" in first_feature
+        assert "latitude" in first_feature
+        assert "longitude" in first_feature
     
 def test_get_fires_filtered():
     with TestClient(app) as client:
@@ -76,3 +85,5 @@ def test_get_ingestion_status():
         assert synthetic_source["status"] == "healthy"
         assert synthetic_source["is_enabled"] == True
         assert synthetic_source["records_fetched"] == 18
+        assert "last_failed_ingest" in synthetic_source
+        assert synthetic_source["is_demo_fallback"] == True

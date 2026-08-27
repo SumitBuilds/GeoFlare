@@ -12,9 +12,9 @@ async def get_alerts(request: Request):
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, observed_at, confidence, satellite, alert_status, ST_AsGeoJSON(location)::json as geometry
+            SELECT id, last_observed_at as observed_at, confidence, satellite, alert_status, ST_AsGeoJSON(location)::json as geometry
             FROM hotspots
-            ORDER BY observed_at DESC
+            ORDER BY last_observed_at DESC
         """)
         
     alerts = []
