@@ -39,6 +39,11 @@ export interface HotspotProperties {
   nearest_facility?: string;
   facility_type?: string;
   nearest_facility_type?: string;
+  source?: string;
+  source_event_id?: string;
+  acq_time?: string;
+  data_quality?: string;
+  raw_metadata?: unknown;
   [key: string]: unknown;
 }
 

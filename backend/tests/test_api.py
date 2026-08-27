@@ -17,14 +17,14 @@ def test_get_fires():
         assert response.status_code == 200
         data = response.json()
         assert data["type"] == "FeatureCollection"
-        assert len(data["features"]) == 3
+        assert len(data["features"]) == 18
     
 def test_get_fires_filtered():
     with TestClient(app) as client:
         response = client.get("/api/v1/fires?classification=industrial_fire_flare")
         assert response.status_code == 200
         data = response.json()
-        assert len(data["features"]) == 1
+        assert len(data["features"]) == 4
         assert data["features"][0]["properties"]["classification"] == "industrial_fire_flare"
         assert data["features"][0]["properties"]["classification_confidence"] == "high"
 
@@ -41,14 +41,14 @@ def test_get_industrial_zones():
         assert response.status_code == 200
         data = response.json()
         assert data["type"] == "FeatureCollection"
-        assert len(data["features"]) == 1
+        assert len(data["features"]) == 3
 
 def test_get_alerts():
     with TestClient(app) as client:
         response = client.get("/api/v1/alerts")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 3
+        assert len(data) == 18
 
 def test_update_alert_status():
     with TestClient(app) as client:
@@ -61,3 +61,18 @@ def test_update_alert_status():
         data = response.json()
         updated_alert = next(a for a in data if a["id"] == 1)
         assert updated_alert["status"] == "investigating"
+
+def test_get_ingestion_status():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ingestion/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert "sources" in data
+        assert len(data["sources"]) == 3
+        
+        # Verify synthetic demo source is present
+        synthetic_source = next((s for s in data["sources"] if s["source_name"] == "synthetic_demo"), None)
+        assert synthetic_source is not None
+        assert synthetic_source["status"] == "healthy"
+        assert synthetic_source["is_enabled"] == True
+        assert synthetic_source["records_fetched"] == 18

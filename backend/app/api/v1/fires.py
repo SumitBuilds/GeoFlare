@@ -17,7 +17,7 @@ async def get_fires(
             SELECT 
                 h.id, h.observed_at, ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
-                h.days_observed, h.observation_count, h.alert_status,
+                h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -29,8 +29,16 @@ async def get_fires(
                     FROM industrial_facilities f 
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
-                ) as distance_to_nearest_facility
+                ) as distance_to_nearest_facility,
+                o.source_event_id, o.instrument, o.acq_time, o.brightness_temperature, o.data_quality
             FROM hotspots h
+            LEFT JOIN LATERAL (
+                SELECT source_event_id, instrument, acq_time, brightness_temperature, data_quality
+                FROM fire_observations
+                WHERE fire_event_id = h.id
+                ORDER BY acq_time DESC NULLS LAST
+                LIMIT 1
+            ) o ON true
         """)
     
     features = []
@@ -70,7 +78,14 @@ async def get_fires(
                 "distance_to_industrial": row['distance_to_nearest_facility'],
                 "facility_type": row['nearest_facility_type'],
                 "days_observed": row['days_observed'],
-                "observation_count": row['observation_count']
+                "observation_count": row['observation_count'],
+                "source": row['source'],
+                "processed_at": row['processed_at'].isoformat() if row['processed_at'] else None,
+                "source_event_id": row['source_event_id'],
+                "instrument": row['instrument'],
+                "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
+                "brightness_temperature": row['brightness_temperature'],
+                "data_quality": row['data_quality']
             }
         }
         features.append(feature)
@@ -88,7 +103,7 @@ async def get_fire(fire_id: int, request: Request):
             SELECT 
                 h.id, h.observed_at, ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
-                h.days_observed, h.observation_count, h.alert_status,
+                h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -100,8 +115,16 @@ async def get_fire(fire_id: int, request: Request):
                     FROM industrial_facilities f 
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
-                ) as distance_to_nearest_facility
+                ) as distance_to_nearest_facility,
+                o.source_event_id, o.instrument, o.acq_time, o.brightness_temperature, o.data_quality
             FROM hotspots h
+            LEFT JOIN LATERAL (
+                SELECT source_event_id, instrument, acq_time, brightness_temperature, data_quality
+                FROM fire_observations
+                WHERE fire_event_id = h.id
+                ORDER BY acq_time DESC NULLS LAST
+                LIMIT 1
+            ) o ON true
             WHERE h.id = $1
         """, fire_id)
         
@@ -138,6 +161,13 @@ async def get_fire(fire_id: int, request: Request):
             "distance_to_industrial": row['distance_to_nearest_facility'],
             "facility_type": row['nearest_facility_type'],
             "days_observed": row['days_observed'],
-            "observation_count": row['observation_count']
+            "observation_count": row['observation_count'],
+            "source": row['source'],
+            "processed_at": row['processed_at'].isoformat() if row['processed_at'] else None,
+            "source_event_id": row['source_event_id'],
+            "instrument": row['instrument'],
+            "acq_time": row['acq_time'].isoformat() if row['acq_time'] else None,
+            "brightness_temperature": row['brightness_temperature'],
+            "data_quality": row['data_quality']
         }
     }
