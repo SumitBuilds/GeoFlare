@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from typing import Optional
 from ...engine.rules import HotspotInput, classify_hotspot
+from ...engine.weather import get_weather_for_location
 import json
 
 router = APIRouter()
@@ -66,6 +67,9 @@ async def get_fires(
         if confidence and cls_output.confidence != confidence:
             continue
             
+        # Attach weather context
+        weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
+        
         feature = {
             "type": "Feature",
             "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
@@ -100,7 +104,8 @@ async def get_fires(
                 "data_quality": row['data_quality'],
                 "severity": cls_output.severity,
                 "risk_score": cls_output.risk_score,
-                "score_components": cls_output.score_components
+                "score_components": cls_output.score_components,
+                "weather": weather.model_dump()
             }
         }
         features.append(feature)
@@ -164,6 +169,9 @@ async def get_fire(fire_id: int, request: Request):
     )
     cls_output = classify_hotspot(data)
     
+    # Attach weather context
+    weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
+    
     return {
         "type": "Feature",
         "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
@@ -198,6 +206,7 @@ async def get_fire(fire_id: int, request: Request):
             "data_quality": row['data_quality'],
             "severity": cls_output.severity,
             "risk_score": cls_output.risk_score,
-            "score_components": cls_output.score_components
+            "score_components": cls_output.score_components,
+            "weather": weather.model_dump()
         }
     }

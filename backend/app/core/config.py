@@ -10,3 +10,6 @@ FIRMS_TIMEOUT_SECONDS = int(os.getenv("FIRMS_TIMEOUT_SECONDS", "30"))
 # Event Grouping Parameters
 GROUPING_SPATIAL_DISTANCE_M = int(os.getenv("GROUPING_SPATIAL_DISTANCE_M", "1000"))
 GROUPING_TIME_WINDOW_DAYS = int(os.getenv("GROUPING_TIME_WINDOW_DAYS", "7"))
+
+# Weather integration
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")

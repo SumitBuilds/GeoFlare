@@ -68,10 +68,14 @@ export default function MapComponent() {
   const haloRef = useRef<any>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const windLayerRef = useRef<any>(null);
+
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
+  const [showWind, setShowWind] = useState(false);
   const [dates, setDates] = useState<string[]>([]);
   const [currentDateIdx, setCurrentDateIdx] = useState<number>(0);
   const [hasNoData, setHasNoData] = useState(false);
@@ -79,6 +83,7 @@ export default function MapComponent() {
   const handleClose = useCallback(() => {
     setSelectedId(null);
     setSelectedProps(null);
+    setShowWind(false);
   }, []);
 
   // ── Map init ──────────────────────────────────────────────────────────────
@@ -282,6 +287,71 @@ export default function MapComponent() {
     }
   }, [selectedId]);
 
+  // ── Wind & Corridor ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    windLayerRef.current?.remove();
+    windLayerRef.current = null;
+
+    if (showWind && selectedProps?.weather && selectedId !== null) {
+      const entry = markersRef.current.find((m) => m.id === selectedId);
+      if (entry) {
+        (async () => {
+          const L = await import('leaflet');
+          const weather = selectedProps.weather;
+          if (!weather) return;
+
+          const getDestination = (lat: number, lng: number, distanceKm: number, bearingDeg: number): [number, number] => {
+            const R = 6371;
+            const d = distanceKm;
+            const lat1 = lat * Math.PI / 180;
+            const lng1 = lng * Math.PI / 180;
+            const brng = bearingDeg * Math.PI / 180;
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d / R) + Math.cos(lat1) * Math.sin(d / R) * Math.cos(brng));
+            const lng2 = lng1 + Math.atan2(Math.sin(brng) * Math.sin(d / R) * Math.cos(lat1), Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2));
+            return [lat2 * 180 / Math.PI, lng2 * 180 / Math.PI];
+          };
+
+          const downwind = (weather.wind_direction + 180) % 360;
+          const lengthKm = Math.min(50, Math.max(5, weather.wind_speed * 3)); 
+          
+          // Polygon (Corridor)
+          const pLeft = getDestination(entry.lat, entry.lng, lengthKm, downwind - 15);
+          const pRight = getDestination(entry.lat, entry.lng, lengthKm, downwind + 15);
+          const corridor = L.polygon([[entry.lat, entry.lng], pLeft, pRight], {
+            color: '#a1a1aa', // zinc-400
+            fillColor: '#71717a', // zinc-500
+            fillOpacity: 0.3,
+            weight: 1,
+            dashArray: '4 4'
+          });
+          corridor.bindTooltip("Indicative smoke corridor — not a certified dispersion model.", { sticky: true });
+
+          // Arrow shaft
+          const shaftEnd = getDestination(entry.lat, entry.lng, lengthKm * 0.4, downwind);
+          const arrowShaft = L.polyline([[entry.lat, entry.lng], shaftEnd], {
+            color: '#3b82f6', // blue-500
+            weight: 3
+          });
+
+          // Arrow head
+          const headLeft = getDestination(shaftEnd[0], shaftEnd[1], lengthKm * 0.05, downwind - 135);
+          const headRight = getDestination(shaftEnd[0], shaftEnd[1], lengthKm * 0.05, downwind + 135);
+          const arrowHead = L.polygon([shaftEnd, headLeft, headRight], {
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 1,
+            weight: 1
+          });
+          
+          arrowShaft.bindTooltip(`Wind blowing toward ${Math.round(downwind)}° at ${weather.wind_speed} ${weather.units}`, { permanent: false });
+          
+          windLayerRef.current = L.layerGroup([corridor, arrowShaft, arrowHead]).addTo(mapRef.current);
+        })().catch(console.error);
+      }
+    }
+  }, [showWind, selectedProps, selectedId]);
+
   return (
     <div className="absolute inset-0 bg-zinc-950">
       {/* Map loading overlay */}
@@ -391,6 +461,8 @@ export default function MapComponent() {
         selectedId={selectedId}
         fallbackProps={selectedProps}
         onClose={handleClose}
+        showWind={showWind}
+        onToggleWind={setShowWind}
       />
     </div>
   );

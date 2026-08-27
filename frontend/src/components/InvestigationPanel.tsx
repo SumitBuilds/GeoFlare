@@ -13,6 +13,16 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface WeatherContext {
+  source: string;
+  observed_at: string;
+  wind_speed: number;
+  wind_direction: number;
+  units: string;
+  is_demo: boolean;
+  data_quality_flags?: string;
+}
+
 export interface HotspotProperties {
   id?: number;
   classification?: string;
@@ -34,6 +44,10 @@ export interface HotspotProperties {
   days_observed?: number;
   observation_count?: number;
   persistence_confidence?: string;
+  approx_movement?: number;
+  severity?: string;
+  risk_score?: number;
+  score_components?: Record<string, number>;
   evidence?: string[];
   explanation?: string;
   nearest_facility?: string;
@@ -43,6 +57,7 @@ export interface HotspotProperties {
   source_event_id?: string;
   acq_time?: string;
   data_quality?: string;
+  weather?: WeatherContext;
   raw_metadata?: unknown;
   [key: string]: unknown;
 }
@@ -52,6 +67,8 @@ interface InvestigationPanelProps {
   /** Properties already stored in the map marker — used as fallback while fetching */
   fallbackProps: HotspotProperties | null;
   onClose: () => void;
+  showWind?: boolean;
+  onToggleWind?: (show: boolean) => void;
 }
 
 // ─── Normalisation helpers ────────────────────────────────────────────────────
@@ -150,6 +167,8 @@ export default function InvestigationPanel({
   selectedId,
   fallbackProps,
   onClose,
+  showWind = false,
+  onToggleWind,
 }: InvestigationPanelProps) {
   const [data, setData] = useState<HotspotProperties | null>(null);
   const [fetchLoading, setFetchLoading] = useState(false);
@@ -345,6 +364,38 @@ export default function InvestigationPanel({
                   <Row key={k} label={k} value={fmt(v)} />
                 ))}
               </div>
+            )}
+
+            <SectionHead title="Wind & Smoke Assessment" />
+            {p.weather ? (
+              <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-1 relative">
+                {p.weather.is_demo && (
+                  <div className="text-[10px] text-yellow-500 font-bold mb-1">
+                    Demo Wind Scenario — not live weather.
+                  </div>
+                )}
+                <Row label="Wind Speed" value={`${p.weather.wind_speed} ${p.weather.units}`} />
+                <Row label="Wind Direction (From)" value={`${p.weather.wind_direction}°`} />
+                <Row label="Downwind (Toward)" value={`${(p.weather.wind_direction + 180) % 360}°`} />
+                <Row label="Source" value={p.weather.source} />
+                <Row label="Observed At" value={fmtDate(p.weather.observed_at)} />
+                <Row label="Data Quality" value={fmt(p.weather.data_quality_flags)} />
+                <div className="pt-2 flex justify-center">
+                  <button
+                    onClick={() => onToggleWind && onToggleWind(!showWind)}
+                    aria-label={showWind ? 'Hide corridor' : 'Show corridor'}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                      showWind 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-inner' 
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                  >
+                    {showWind ? 'Hide corridor' : 'Show Wind Direction & Indicative Corridor'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500 mt-1">No wind data available.</p>
             )}
 
             <SectionHead title="Proximity" />
