@@ -211,7 +211,7 @@ async def get_fire(fire_id: int, request: Request):
         }
     }
 
-@router.get("/{fire_id}/impact")
+@router.get("/fires/{fire_id}/impact")
 async def get_fire_impact(request: Request, fire_id: int, radius_m: float = 1000.0):
     """
     Returns potential impact context including nearby assets and downwind status.
@@ -219,7 +219,7 @@ async def get_fire_impact(request: Request, fire_id: int, radius_m: float = 1000
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT id, latitude, longitude, observed_at, first_observed_at
+            SELECT id, ST_Y(location::geometry) as latitude, ST_X(location::geometry) as longitude, last_observed_at as observed_at, first_observed_at
             FROM hotspots
             WHERE id = $1
         """, fire_id)
