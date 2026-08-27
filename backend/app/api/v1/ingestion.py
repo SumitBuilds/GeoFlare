@@ -1,6 +1,21 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+from app.core.config import FIRMS_ENABLED
+from app.engine.firms_client import fetch_firms_data
 
 router = APIRouter()
+
+@router.post("/ingestion/firms")
+async def trigger_firms_ingestion(request: Request, background_tasks: BackgroundTasks, source: str = None):
+    if not FIRMS_ENABLED:
+        raise HTTPException(status_code=403, detail="FIRMS ingestion is disabled.")
+    
+    pool = request.app.state.pool
+    try:
+        result = await fetch_firms_data(pool, source=source)
+        return {"status": "success", "metrics": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/ingestion/status")
 async def get_ingestion_status(request: Request):
@@ -11,7 +26,7 @@ async def get_ingestion_status(request: Request):
                 id, source_name, status, is_enabled, 
                 last_successful_ingest, last_failed_ingest, last_attempt, latest_observation_time, 
                 records_fetched, records_accepted, records_rejected, 
-                error_message, is_demo_fallback, created_at, updated_at
+                error_message, created_at, updated_at
             FROM source_health
             ORDER BY source_name ASC
         """)
@@ -31,7 +46,7 @@ async def get_ingestion_status(request: Request):
             "records_accepted": row['records_accepted'],
             "records_rejected": row['records_rejected'],
             "error_message": row['error_message'],
-            "is_demo_fallback": row['is_demo_fallback'],
+            "created_at": row['created_at'].isoformat() if row['created_at'] else None,
             "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
         })
         

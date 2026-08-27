@@ -6,77 +6,9 @@ import InvestigationPanel, { type HotspotProperties } from './InvestigationPanel
 
 // ─── Fallback demo data ───────────────────────────────────────────────────────
 
-const FALLBACK_FIRES = {
+const FALLBACK_FIRES: { type: string; features: any[] } = {
   type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.00, 19.11] },
-      properties: {
-        id: 1,
-        classification: 'Industrial Fire/Flare',
-        subclass: 'Gas Flare',
-        temperature: 1200.5,
-        frp: 45.2,
-        confidence: 'High',
-        classification_confidence: 0.99,
-        distance_to_industrial: 0,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Hotspot is persistent and located very close to an industrial facility, strongly indicating an industrial flare or fire.',
-        evidence: [
-          'Distance to industrial zone is 0m (<= 1000m).',
-          'Hotspot is persistent (observed for 7 days, 12 times).',
-          "Located within 1km of industrial zone of type 'Refinery'.",
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.06, 19.04] },
-      properties: {
-        id: 2,
-        classification: 'Natural/Vegetation',
-        subclass: 'Forest Fire',
-        temperature: 600.0,
-        frp: 12.5,
-        confidence: 'Nominal',
-        classification_confidence: 0.85,
-        distance_to_industrial: 8000,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Hotspot is far from industrial areas and lacks long-term persistence, consistent with a natural vegetation fire.',
-        evidence: [
-          'Distance to industrial zone is 8000m (> 1000m).',
-          'Not persistent and located far (>2km) from known industrial infrastructure.',
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.025, 19.09] },
-      properties: {
-        id: 3,
-        classification: 'Unknown/Uncertain',
-        subclass: 'Unknown',
-        temperature: 400.0,
-        frp: 5.0,
-        confidence: 'Low',
-        classification_confidence: 0.50,
-        distance_to_industrial: 2000,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Evidence is conflicting, borderline, or insufficient to confidently classify as natural or industrial.',
-        evidence: [
-          'Distance to industrial zone is 2000m (> 1000m).',
-          'Located in the buffer zone (1km - 2km) from industrial areas.',
-        ],
-      },
-    },
-  ],
+  features: [],
 };
 
 const FALLBACK_ZONES = {
@@ -90,7 +22,7 @@ const FALLBACK_ZONES = {
       },
       properties: {
         id: 1,
-        name: 'Thane-Belapur Petrochemical Plant (DEMO DATA)',
+        name: 'Thane-Belapur Petrochemical Plant (Reference)',
         facility_type: 'Refinery',
       },
     },
@@ -141,6 +73,7 @@ export default function MapComponent() {
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [currentDateIdx, setCurrentDateIdx] = useState<number>(0);
+  const [hasNoData, setHasNoData] = useState(false);
 
   const handleClose = useCallback(() => {
     setSelectedId(null);
@@ -168,12 +101,12 @@ export default function MapComponent() {
       if (cancelled) { map.remove(); return; }
       mapRef.current = map;
 
-      // CartoDB Dark Matter — free, no token
+      // Esri Dark Gray Base — free, no token needed for non-commercial
       L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
         {
           attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
           maxZoom: 19,
         }
       ).addTo(map);
@@ -251,15 +184,33 @@ export default function MapComponent() {
         });
       });
 
+      let minDateStr = "9999-99-99";
+      let maxDateStr = "0000-00-00";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const uniqueDates = Array.from(new Set(firesData.features.map((f: any) => {
-        const obs = f.properties?.observed_at;
-        return obs ? obs.substring(0, 10) : new Date().toISOString().substring(0, 10);
-      }))).sort();
+      firesData.features.forEach((f: any) => {
+        const start = f.properties?.first_observed_at?.substring(0, 10);
+        const end = f.properties?.observed_at?.substring(0, 10);
+        if (start && start < minDateStr) minDateStr = start;
+        if (end && end > maxDateStr) maxDateStr = end;
+      });
+      const uniqueDates: string[] = [];
+      if (minDateStr <= maxDateStr && maxDateStr !== "0000-00-00") {
+        const curr = new Date(minDateStr);
+        const last = new Date(maxDateStr);
+        while (curr <= last) {
+          uniqueDates.push(curr.toISOString().substring(0, 10));
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
 
       if (!cancelled) {
-        setDates(uniqueDates);
-        setCurrentDateIdx(uniqueDates.length - 1);
+        if (uniqueDates.length > 0) {
+          setDates(uniqueDates);
+          setCurrentDateIdx(uniqueDates.length - 1);
+          setHasNoData(false);
+        } else {
+          setHasNoData(true);
+        }
         setLoading(false);
       }
     };
@@ -289,10 +240,12 @@ export default function MapComponent() {
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
-      // Date filter logic
+      // Date filter logic (show if activeDateStr falls between first_observed_at and observed_at)
       if (show && activeDateStr) {
-        const obs = properties.observed_at ? properties.observed_at.substring(0, 10) : '';
-        if (obs > activeDateStr) show = false;
+        const start = properties.first_observed_at ? properties.first_observed_at.substring(0, 10) : '';
+        const end = properties.observed_at ? properties.observed_at.substring(0, 10) : '';
+        if (start && activeDateStr < start) show = false;
+        if (end && activeDateStr > end) show = false;
       }
       
       if (show) {
@@ -335,6 +288,19 @@ export default function MapComponent() {
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 text-white backdrop-blur-sm">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-blue-500" />
           <p className="text-lg font-medium">Loading Map Data…</p>
+        </div>
+      )}
+
+      {/* No Data Overlay */}
+      {!loading && hasNoData && (
+        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center pointer-events-none">
+          <div className="bg-zinc-900/90 border border-yellow-500/50 rounded-xl p-6 shadow-xl backdrop-blur flex flex-col items-center max-w-sm text-center">
+            <span className="text-4xl mb-3">🛰️</span>
+            <h3 className="text-lg font-semibold text-white mb-2">No Data Available</h3>
+            <p className="text-sm text-zinc-400">
+              No NASA FIRMS observations available for this selection. Try refreshing live data.
+            </p>
+          </div>
         </div>
       )}
 

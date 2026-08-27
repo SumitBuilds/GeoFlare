@@ -272,9 +272,14 @@ export default function InvestigationPanel({
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-zinc-700 shrink-0">
         <div className="flex flex-col gap-1 min-w-0">
-          <span className={`text-xs font-semibold rounded px-2 py-0.5 w-fit ${getBadge(p?.classification)}`}>
-            {displayCls}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-xs font-semibold rounded px-2 py-0.5 w-fit ${getBadge(p?.classification)}`}>
+              {displayCls}
+            </span>
+            <span className="text-[10px] uppercase font-bold tracking-wider rounded px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/40" title="This is live data ingested from NASA FIRMS.">
+              Source: NASA FIRMS
+            </span>
+          </div>
           <span className="text-xs text-zinc-500">Hotspot #{selectedId}</span>
         </div>
         <button
@@ -354,6 +359,26 @@ export default function InvestigationPanel({
             <p className="text-xs text-zinc-300 leading-relaxed mt-1">
               {fmt(p.explanation)}
             </p>
+
+            <SectionHead title="Data Verification" />
+            <div className="mt-1 bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px] font-mono text-zinc-400 space-y-1">
+              <div className="flex justify-between">
+                <span>Source ID:</span>
+                <span className="text-zinc-300">{fmt(p.source)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Event ID:</span>
+                <span className="text-zinc-300">{fmt(p.source_event_id || `NASA_FIRMS_${p.id}`)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Acq. Timestamp:</span>
+                <span className="text-zinc-300">{fmtDate(p.observed_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Satellite:</span>
+                <span className="text-zinc-300">{fmt(p.satellite)}</span>
+              </div>
+            </div>
           </>
         )}
       </div>

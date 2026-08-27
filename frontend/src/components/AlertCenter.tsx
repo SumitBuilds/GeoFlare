@@ -35,68 +35,8 @@ interface AlertItem {
   is_demo: boolean;
 }
 
-// ─── Fallback demo data ───────────────────────────────────────────────────────
+// ─── No fallback demo data ───────────────────────────────────────────────────────
 
-const DEMO_ALERTS: AlertItem[] = [
-  {
-    id: 1,
-    classification: 'Industrial Fire/Flare',
-    subclass: 'Gas Flare',
-    classification_confidence: 0.99,
-    confidence: 'High',
-    satellite: 'MODIS_DEMO_FLARE',
-    observed_at: '2024-01-15T06:30:00Z',
-    alert_status: 'new',
-    explanation: 'Hotspot is persistent and located very close to an industrial facility, strongly indicating an industrial flare or fire.',
-    evidence: [
-      'Distance to industrial zone is 0m (<= 1000m).',
-      'Hotspot is persistent (observed for 10 days, 24 times).',
-      "Located within 1km of industrial zone of type 'Refinery'.",
-    ],
-    frp: 45.2,
-    temperature: 1200.5,
-    distance_to_industrial: 0,
-    is_demo: true,
-  },
-  {
-    id: 2,
-    classification: 'Natural/Vegetation',
-    subclass: 'Wildfire',
-    classification_confidence: 0.85,
-    confidence: 'Nominal',
-    satellite: 'MODIS_DEMO_VEG',
-    observed_at: '2024-01-15T06:30:00Z',
-    alert_status: 'new',
-    explanation: 'Hotspot is far from industrial areas and lacks long-term persistence, consistent with a natural vegetation fire.',
-    evidence: [
-      'Distance to industrial zone is 8000m (> 1000m).',
-      'Not persistent and located far (>2km) from known industrial infrastructure.',
-    ],
-    frp: 12.5,
-    temperature: 600.0,
-    distance_to_industrial: 8000,
-    is_demo: true,
-  },
-  {
-    id: 3,
-    classification: 'Unknown/Uncertain',
-    subclass: null,
-    classification_confidence: 0.50,
-    confidence: 'Low',
-    satellite: 'MODIS_DEMO_UNKNOWN',
-    observed_at: '2024-01-15T06:30:00Z',
-    alert_status: 'new',
-    explanation: 'Evidence is conflicting, borderline, or insufficient to confidently classify as natural or industrial.',
-    evidence: [
-      'Distance to industrial zone is 2000m (> 1000m).',
-      'Located in the buffer zone (1km - 2km) from industrial areas.',
-    ],
-    frp: 5.0,
-    temperature: 400.0,
-    distance_to_industrial: 2000,
-    is_demo: true,
-  },
-];
 
 // ─── Normalisation ────────────────────────────────────────────────────────────
 
@@ -385,10 +325,10 @@ export default function AlertCenter() {
     } catch (err) {
       clearTimeout(t);
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Backend unreachable (${msg}). Showing demo data.`);
-      setAlerts(DEMO_ALERTS);
+      setError(`Backend unreachable (${msg}). No data to display.`);
+      setAlerts([]);
       setBackendUp(false);
-      setUsingDemo(true);
+      setUsingDemo(false);
       setLastRefreshed(new Date());
     } finally {
       setLoading(false);
@@ -555,7 +495,7 @@ export default function AlertCenter() {
       {!loading && filtered.length === 0 && !error && (
         <div className="flex flex-col items-center justify-center gap-2 py-24 text-zinc-500">
           <CheckCircle className="h-10 w-10 text-green-600/50" />
-          <p className="text-sm font-medium">No alerts match the selected filters.</p>
+          <p className="text-sm font-medium">No NASA FIRMS observations available for this selection.</p>
           <button
             onClick={() => { setStatusFilter('All'); setClsFilter('All'); }}
             className="text-xs text-blue-400 hover:underline mt-1 focus:outline-none"

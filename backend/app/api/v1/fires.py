@@ -20,7 +20,7 @@ async def get_fires(
                 ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
-                h.severity, h.risk_score, h.is_demo,
+                h.severity, h.risk_score,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -93,8 +93,7 @@ async def get_fires(
                 "brightness_temperature": row['brightness_temperature'],
                 "data_quality": row['data_quality'],
                 "severity": row['severity'],
-                "risk_score": row['risk_score'],
-                "is_demo": row['is_demo']
+                "risk_score": row['risk_score']
             }
         }
         features.append(feature)
@@ -115,7 +114,7 @@ async def get_fire(fire_id: int, request: Request):
                 ST_AsGeoJSON(h.location)::json as geometry, 
                 h.confidence, h.satellite, h.temperature, h.frp, 
                 h.days_observed, h.observation_count, h.alert_status, h.source, h.processed_at,
-                h.severity, h.risk_score, h.is_demo,
+                h.severity, h.risk_score,
                 (
                     SELECT f.facility_type 
                     FROM industrial_facilities f 
@@ -185,7 +184,6 @@ async def get_fire(fire_id: int, request: Request):
             "brightness_temperature": row['brightness_temperature'],
             "data_quality": row['data_quality'],
             "severity": row['severity'],
-            "risk_score": row['risk_score'],
-            "is_demo": row['is_demo']
+            "risk_score": row['risk_score']
         }
     }

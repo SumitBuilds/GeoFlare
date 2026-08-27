@@ -4,7 +4,6 @@ CREATE TABLE industrial_facilities (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     facility_type VARCHAR(100),
-    is_demo_data BOOLEAN DEFAULT true,
     location GEOGRAPHY(Polygon, 4326) NOT NULL
 );
 
@@ -13,17 +12,16 @@ CREATE TABLE hotspots (
     first_observed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_observed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     location GEOGRAPHY(Point, 4326) NOT NULL,
-    confidence VARCHAR(50),
-    satellite VARCHAR(50) DEFAULT 'MODIS_DEMO',
-    temperature FLOAT DEFAULT 300.0,
-    frp FLOAT DEFAULT 5.0,
+    confidence VARCHAR(50) NOT NULL,
+    satellite VARCHAR(50) NOT NULL,
+    temperature FLOAT NOT NULL,
+    frp FLOAT NOT NULL,
     days_observed INT DEFAULT 1,
     observation_count INT DEFAULT 1,
     alert_status VARCHAR(50) DEFAULT 'pending',
-    source VARCHAR(100) DEFAULT 'synthetic',
+    source VARCHAR(100) NOT NULL,
     severity VARCHAR(50) DEFAULT 'unknown',
     risk_score FLOAT DEFAULT 0.0,
-    is_demo BOOLEAN DEFAULT false,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -34,18 +32,17 @@ CREATE TABLE fire_observations (
     id SERIAL PRIMARY KEY,
     fire_event_id INT REFERENCES hotspots(id),
     source VARCHAR(100) NOT NULL,
-    source_event_id VARCHAR(100),
-    satellite VARCHAR(50),
+    source_event_id VARCHAR(100) NOT NULL,
+    satellite VARCHAR(50) NOT NULL,
     instrument VARCHAR(50),
     observed_at TIMESTAMP WITH TIME ZONE NOT NULL,
     brightness_temperature FLOAT,
-    temperature FLOAT,
-    frp FLOAT,
-    confidence VARCHAR(50),
+    temperature FLOAT NOT NULL,
+    frp FLOAT NOT NULL,
+    confidence VARCHAR(50) NOT NULL,
     location GEOGRAPHY(Point, 4326) NOT NULL,
     raw_metadata JSONB,
     data_quality_flags VARCHAR(50),
-    is_demo BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(source, source_event_id)
@@ -67,7 +64,6 @@ CREATE TABLE source_health (
     records_accepted INT DEFAULT 0,
     records_rejected INT DEFAULT 0,
     error_message TEXT,
-    is_demo_fallback BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

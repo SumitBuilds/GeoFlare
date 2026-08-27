@@ -8,7 +8,7 @@ async def get_industrial_zones(request: Request):
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, name, facility_type, is_demo_data, ST_AsGeoJSON(location)::json as geometry
+            SELECT id, name, facility_type, ST_AsGeoJSON(location)::json as geometry
             FROM industrial_facilities
         """)
         
@@ -20,8 +20,7 @@ async def get_industrial_zones(request: Request):
             "properties": {
                 "id": row['id'],
                 "name": row['name'],
-                "facility_type": row['facility_type'],
-                "is_demo_data": row['is_demo_data']
+                "facility_type": row['facility_type']
             }
         }
         features.append(feature)
