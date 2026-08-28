@@ -17,16 +17,18 @@ const FALLBACK_FIRES: { type: string; features: any[] } = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getClassColor = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return '#ef4444';
+  if (cls === 'Industrial Fire/Thermal Source' || cls === 'industrial_thermal_source' || cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return '#ef4444';
   if (cls === 'Gas Flare' || cls === 'gas_flare') return '#f97316';
-  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return '#22c55e';
+  if (cls === 'Wildfire/Forest Fire' || cls === 'wildfire_forest_fire' || cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return '#22c55e';
+  if (cls === 'Agricultural Burning' || cls === 'agricultural_burning') return '#84cc16';
   return '#eab308';
 };
 
 const getLabel = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return 'IND';
+  if (cls === 'Industrial Fire/Thermal Source' || cls === 'industrial_thermal_source' || cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return 'IND';
   if (cls === 'Gas Flare' || cls === 'gas_flare') return 'FLR';
-  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return 'NAT';
+  if (cls === 'Wildfire/Forest Fire' || cls === 'wildfire_forest_fire' || cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return 'FOR';
+  if (cls === 'Agricultural Burning' || cls === 'agricultural_burning') return 'AGR';
   return '?';
 };
 
@@ -232,8 +234,8 @@ export default function MapComponent() {
       let show = filter === 'All';
       if (!show) {
         const n = classification;
-        if (filter === 'Industrial' && (n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare' || n === 'Gas Flare' || n === 'gas_flare')) show = true;
-        if (filter === 'Natural' && (n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Industrial' && (n === 'Industrial Fire/Thermal Source' || n === 'industrial_thermal_source' || n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare' || n === 'Gas Flare' || n === 'gas_flare')) show = true;
+        if (filter === 'Natural' && (n === 'Wildfire/Forest Fire' || n === 'wildfire_forest_fire' || n === 'Agricultural Burning' || n === 'agricultural_burning' || n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
@@ -599,9 +601,10 @@ export default function MapComponent() {
           <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52 max-h-[40vh] overflow-y-auto custom-scrollbar">
             <h4 className="font-bold mb-2 text-white text-[10px] uppercase tracking-wide">Legend</h4>
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Flare</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Thermal Source</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span className="text-xs">Gas Flare</span></div>
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span className="text-xs">Natural/Vegetation</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FOR</div><span className="text-xs">Wildfire/Forest Fire</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-[#84cc16] border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">AGR</div><span className="text-xs">Agricultural Burning</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span className="text-xs">Unknown/Uncertain</span></div>
               
               <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">

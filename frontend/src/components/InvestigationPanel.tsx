@@ -115,11 +115,14 @@ interface InvestigationPanelProps {
 // ─── Normalisation helpers ────────────────────────────────────────────────────
 
 const CLS_MAP: Record<string, string> = {
-  industrial_fire_flare: 'Industrial Fire/Flare',
-  natural_vegetation: 'Natural/Vegetation',
+  industrial_thermal_source: 'Industrial Fire/Thermal Source',
+  wildfire_forest_fire: 'Wildfire/Forest Fire',
+  agricultural_burning: 'Agricultural Burning',
   unknown_uncertain: 'Unknown/Uncertain',
+  industrial_fire_flare: 'Industrial Fire/Flare',
+  natural_vegetation: 'Natural/Vegetation Fire',
   'Industrial Fire/Flare': 'Industrial Fire/Flare',
-  'Natural/Vegetation': 'Natural/Vegetation',
+  'Natural/Vegetation': 'Natural/Vegetation Fire',
   'Unknown/Uncertain': 'Unknown/Uncertain',
   'Gas Flare': 'Gas Flare',
 };
@@ -127,6 +130,9 @@ const CLS_MAP: Record<string, string> = {
 const SUB_MAP: Record<string, string> = {
   gas_flare: 'Gas Flare',
   industrial_fire: 'Industrial Fire',
+  other_industrial_heat: 'Other Industrial Heat',
+  mining_activity: 'Mining Activity',
+  power_plant_thermal_source: 'Power Plant',
   wildfire: 'Wildfire',
   'Gas Flare': 'Gas Flare',
   'Forest Fire': 'Forest Fire',
@@ -168,9 +174,10 @@ const fmtConf = (v: unknown): string => {
 
 const getBadge = (cls?: string) => {
   const n = normCls(cls);
-  if (n === 'Industrial Fire/Flare') return 'bg-red-500/20 text-red-400 border border-red-500/40';
+  if (n === 'Industrial Fire/Thermal Source' || n === 'Industrial Fire/Flare') return 'bg-red-500/20 text-red-400 border border-red-500/40';
   if (n === 'Gas Flare') return 'bg-orange-500/20 text-orange-400 border border-orange-500/40';
-  if (n === 'Natural/Vegetation') return 'bg-green-500/20 text-green-400 border border-green-500/40';
+  if (n === 'Wildfire/Forest Fire' || n === 'Natural/Vegetation Fire') return 'bg-green-500/20 text-green-400 border border-green-500/40';
+  if (n === 'Agricultural Burning') return 'bg-[#84cc16]/20 text-[#84cc16] border border-[#84cc16]/40';
   return 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40';
 };
 
@@ -411,10 +418,19 @@ export default function InvestigationPanel({
         {/* Content */}
         {!fetchLoading && p && (
           <>
+            <div className="bg-zinc-800/50 border border-zinc-700/80 rounded px-3 py-2 mt-2 mb-2 text-[10px] text-zinc-400 leading-tight">
+              <strong>Disclaimer:</strong> This classification describes the likely context of a satellite-observed thermal anomaly. It is not independent confirmation of a fire.
+            </div>
+            
             <SectionHead title="Classification" />
             <Row label="Classification" value={displayCls} />
             <Row label="Subclass" value={displaySub} />
+            <Row label="Taxonomy Version" value={fmt(p.taxonomy_version)} />
+            <Row label="Classification Method" value={fmt(p.classification_method)} />
+            <Row label="Model Probability" value={fmt(p.model_probability)} />
             <Row label="Classification Confidence" value={fmtConf(p.classification_confidence)} />
+            <Row label="FIRMS Detection Confidence" value={fmtConf(p.firms_detection_confidence ?? sourceConf)} />
+            <Row label="Prototype Risk Score" value={fmt(p.prototype_risk_score ?? p.risk_score)} />
             <Row label="Alert Status" value={fmt(alertStatus ?? p.alert_status)} />
 
             <SectionHead title="Observation" />
@@ -425,7 +441,7 @@ export default function InvestigationPanel({
             <Row label="Instrument" value={fmt(p.instrument)} />
             <Row label="Temperature / Brightness" value={temp !== undefined && temp !== null ? `${temp} K` : 'Not available'} />
             <Row label="FRP" value={p.frp !== undefined && p.frp !== null ? `${p.frp} MW` : 'Not available'} />
-            <Row label="Source Confidence" value={fmt(sourceConf)} />
+            <Row label="Data Quality Flags" value={Array.isArray(p.data_quality_flags) && p.data_quality_flags.length > 0 ? p.data_quality_flags.join(', ') : fmt(p.data_quality_flags ?? p.data_quality)} />
             <Row label="Days Observed" value={fmt(p.days_observed)} />
             <Row label="Observation Count" value={fmt(p.observation_count)} />
             <Row label="Persistence Confidence" value={fmt(p.persistence_confidence)} />

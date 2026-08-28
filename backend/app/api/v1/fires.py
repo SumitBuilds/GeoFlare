@@ -146,6 +146,15 @@ async def get_fires(
             
         summary, obs_sources = build_corroboration_summary(all_obs_raw, row['source'])
         
+        is_demo = "Synthetic" in row['source'] or "Demo" in row['source']
+        land_cover_type = None
+        agricultural_context = None
+        if is_demo:
+            if "Wildfire" in row['source'] or "Natural" in row['source']:
+                land_cover_type = "forest"
+            elif "Agricultural" in row['source'] or "Agri" in row['source']:
+                agricultural_context = "agricultural_land"
+                
         data = HotspotInput(
             temperature=row['temperature'],
             brightness_temperature=row['brightness_temperature'] or 0.0,
@@ -158,9 +167,13 @@ async def get_fires(
             approx_movement=row['approx_movement'] or 0.0,
             persistence_confidence=row['persistence_confidence'] or 0.0,
             data_quality_flags=row['data_quality'],
-            observation_sources=obs_sources
+            observation_sources=obs_sources,
+            land_cover_type=land_cover_type,
+            agricultural_context=agricultural_context,
+            is_demo=is_demo
         )
-        cls_output = classify_hotspot(data)
+        # Attempt to map from old legacy label if it was somehow persisted, but we don't have it in the schema, so default None.
+        cls_output = classify_hotspot(data, original_classification=None)
         
         if classification and cls_output.classification != classification:
             continue
@@ -184,16 +197,24 @@ async def get_fires(
                 "observed_at": row['observed_at'].isoformat() if row['observed_at'] else None,
                 "latitude": row['latitude'],
                 "longitude": row['longitude'],
-                "confidence": row['confidence'],
+                "confidence": row['confidence'],  # legacy compatibility
+                "firms_detection_confidence": row['confidence'],
                 "satellite": row['satellite'],
                 "temperature": row['temperature'],
                 "frp": row['frp'],
                 "alert_status": row['alert_status'],
                 "classification": cls_output.classification,
+                "classification_label": cls_output.classification_label,
                 "subclass": cls_output.subclass,
-                "classification_confidence": cls_output.confidence,
+                "classification_confidence": cls_output.classification_confidence,
+                "classification_method": cls_output.classification_method,
+                "model_probability": cls_output.model_probability,
+                "prototype_risk_score": cls_output.prototype_risk_score,
+                "taxonomy_version": cls_output.taxonomy_version,
+                "original_classification": cls_output.original_classification,
                 "evidence": cls_output.evidence,
                 "explanation": cls_output.explanation,
+                "data_quality_flags": cls_output.data_quality_flags,
                 "distance_to_industrial": row['distance_to_nearest_facility'],
                 "facility_type": row['nearest_facility_type'],
                 "days_observed": row['days_observed'],
@@ -208,8 +229,9 @@ async def get_fires(
                 "brightness_temperature": row['brightness_temperature'],
                 "data_quality": row['data_quality'],
                 "severity": cls_output.severity,
-                "risk_score": cls_output.risk_score,
+                "risk_score": cls_output.prototype_risk_score,  # legacy compatibility
                 "score_components": cls_output.score_components,
+                "is_demo": is_demo,
                 "weather": weather.model_dump(),
                 "corroboration": cls_output.corroboration,
                 "corroboration_summary": summary,
@@ -288,6 +310,15 @@ async def get_fire(fire_id: int, request: Request):
         
     summary, obs_sources = build_corroboration_summary(all_obs_raw, row['source'])
     
+    is_demo = "Synthetic" in row['source'] or "Demo" in row['source']
+    land_cover_type = None
+    agricultural_context = None
+    if is_demo:
+        if "Wildfire" in row['source'] or "Natural" in row['source']:
+            land_cover_type = "forest"
+        elif "Agricultural" in row['source'] or "Agri" in row['source']:
+            agricultural_context = "agricultural_land"
+
     data = HotspotInput(
         temperature=row['temperature'],
         brightness_temperature=row['brightness_temperature'] or 0.0,
@@ -300,9 +331,12 @@ async def get_fire(fire_id: int, request: Request):
         approx_movement=row['approx_movement'] or 0.0,
         persistence_confidence=row['persistence_confidence'] or 0.0,
         data_quality_flags=row['data_quality'],
-        observation_sources=obs_sources
+        observation_sources=obs_sources,
+        land_cover_type=land_cover_type,
+        agricultural_context=agricultural_context,
+        is_demo=is_demo
     )
-    cls_output = classify_hotspot(data)
+    cls_output = classify_hotspot(data, original_classification=None)
     
     # Attach weather context
     weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
@@ -322,16 +356,24 @@ async def get_fire(fire_id: int, request: Request):
             "observed_at": row['observed_at'].isoformat() if row['observed_at'] else None,
             "latitude": row['latitude'],
             "longitude": row['longitude'],
-            "confidence": row['confidence'],
+            "confidence": row['confidence'],  # legacy compatibility
+            "firms_detection_confidence": row['confidence'],
             "satellite": row['satellite'],
             "temperature": row['temperature'],
             "frp": row['frp'],
             "alert_status": row['alert_status'],
             "classification": cls_output.classification,
+            "classification_label": cls_output.classification_label,
             "subclass": cls_output.subclass,
-            "classification_confidence": cls_output.confidence,
+            "classification_confidence": cls_output.classification_confidence,
+            "classification_method": cls_output.classification_method,
+            "model_probability": cls_output.model_probability,
+            "prototype_risk_score": cls_output.prototype_risk_score,
+            "taxonomy_version": cls_output.taxonomy_version,
+            "original_classification": cls_output.original_classification,
             "evidence": cls_output.evidence,
             "explanation": cls_output.explanation,
+            "data_quality_flags": cls_output.data_quality_flags,
             "distance_to_industrial": row['distance_to_nearest_facility'],
             "facility_type": row['nearest_facility_type'],
             "days_observed": row['days_observed'],
@@ -346,8 +388,9 @@ async def get_fire(fire_id: int, request: Request):
             "brightness_temperature": row['brightness_temperature'],
             "data_quality": row['data_quality'],
             "severity": cls_output.severity,
-            "risk_score": cls_output.risk_score,
+            "risk_score": cls_output.prototype_risk_score,  # legacy compatibility
             "score_components": cls_output.score_components,
+            "is_demo": is_demo,
             "weather": weather.model_dump(),
             "corroboration": cls_output.corroboration,
             "corroboration_summary": summary,
