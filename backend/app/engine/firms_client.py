@@ -80,13 +80,21 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
 
                     brightness = float(row.get('brightness', 0) or row.get('bright_ti4', 0))
                     frp = float(row.get('frp', 0))
-                    confidence = row.get('confidence', 'nominal').lower()
+                    confidence = str(row.get('confidence', 'nominal')).lower()
                     if confidence == 'n':
                         confidence = 'nominal'
                     elif confidence == 'h':
                         confidence = 'high'
                     elif confidence == 'l':
                         confidence = 'low'
+                    elif confidence.isdigit():
+                        conf_val = int(confidence)
+                        if conf_val >= 80:
+                            confidence = 'high'
+                        elif conf_val >= 30:
+                            confidence = 'nominal'
+                        else:
+                            confidence = 'low'
 
                     instrument = row.get('instrument', 'unknown')
                     satellite = row.get('satellite', 'unknown')
