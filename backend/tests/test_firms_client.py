@@ -38,7 +38,8 @@ async def test_process_firms_csv_and_deduplication():
         result2 = await process_firms_csv(csv_data, pool, "TEST_SOURCE")
         assert result2["fetched"] == 2
         assert result2["accepted"] == 0
-        assert result2["rejected"] == 2
+        assert result2["rejected"] == 1
+        assert result2["deduplicated"] == 1
     finally:
         await pool.close()
 
@@ -65,9 +66,10 @@ def test_trigger_firms_ingestion_endpoint(mock_client_class, mock_start_schedule
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
-        assert data["metrics"]["fetched"] == 2
-        assert data["metrics"]["accepted"] == 1
-        assert data["metrics"]["rejected"] == 1
+        assert data["metrics"]["MOCK_SOURCE"]["fetched"] == 2
+        assert data["metrics"]["MOCK_SOURCE"]["accepted"] == 1
+        assert data["metrics"]["MOCK_SOURCE"]["rejected"] == 1
+        assert data["metrics"]["MOCK_SOURCE"]["deduplicated"] == 0
 
 @patch("app.engine.scheduler.start_scheduler")
 @patch("app.engine.firms_client.httpx.AsyncClient")
@@ -89,8 +91,37 @@ def test_firms_ingestion_empty_response(mock_client_class, mock_start_scheduler)
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
-        assert data["metrics"]["fetched"] == 0
-        assert data["metrics"]["accepted"] == 0
+        assert data["metrics"]["MOCK_EMPTY"]["fetched"] == 0
+        assert data["metrics"]["MOCK_EMPTY"]["accepted"] == 0
+        assert data["metrics"]["MOCK_EMPTY"]["rejected"] == 0
+        assert data["metrics"]["MOCK_EMPTY"]["deduplicated"] == 0
+
+@patch("app.engine.scheduler.start_scheduler")
+@patch("app.engine.firms_client.httpx.AsyncClient")
+@patch("app.api.v1.ingestion.FIRMS_ENABLED", True)
+@patch("app.core.config.FIRMS_SOURCES", ["SOURCE_A", "SOURCE_B"])
+def test_firms_ingestion_multi_source(mock_client_class, mock_start_scheduler):
+    mock_response = MagicMock()
+    mock_response.text = get_sample_csv()
+    mock_response.raise_for_status.return_value = None
+    
+    mock_client_instance = MagicMock()
+    mock_client_instance.get = AsyncMock(return_value=mock_response)
+    mock_client_instance.__aenter__.return_value = mock_client_instance
+    mock_client_instance.__aexit__.return_value = None
+    mock_client_class.return_value = mock_client_instance
+    
+    with TestClient(app) as client:
+        response = client.post("/api/v1/ingestion/firms")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "SOURCE_A" in data["metrics"]
+        assert "SOURCE_B" in data["metrics"]
+        assert data["metrics"]["SOURCE_A"]["fetched"] == 2
+        assert data["metrics"]["SOURCE_B"]["fetched"] == 2
+        assert data["metrics"]["SOURCE_A"]["deduplicated"] == 0
+        assert data["metrics"]["SOURCE_B"]["deduplicated"] == 0
 
 @patch("app.engine.scheduler.start_scheduler")
 @patch("app.engine.firms_client.httpx.AsyncClient")
@@ -168,6 +199,7 @@ async def test_firms_time_parsing_missing_leading_zero():
         assert result["fetched"] == 1
         assert result["accepted"] == 1
         assert result["rejected"] == 0
+        assert result["deduplicated"] == 0
         
         async with pool.acquire() as conn:
             obs = await conn.fetchrow("SELECT observed_at FROM fire_observations WHERE source = 'FIRMS_TEST_TIME_PARSE' ORDER BY created_at DESC LIMIT 1")
