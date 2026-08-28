@@ -150,6 +150,15 @@ const fmtDate = (v: unknown): string => {
   }
 };
 
+const fmtDateUTC = (v: unknown): string => {
+  if (!v || typeof v !== 'string') return 'Not available';
+  try {
+    return new Date(v).toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  } catch {
+    return v;
+  }
+};
+
 const fmtConf = (v: unknown): string => {
   if (typeof v === 'number') return `${Math.round(v * 100)}%`;
   if (typeof v === 'string') {
@@ -765,23 +774,51 @@ export default function InvestigationPanel({
               </>
             )}
 
-            <SectionHead title="Data Verification" />
+            <SectionHead title="FIRMS Verification" />
             <div className="mt-1 bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px] font-mono text-zinc-400 space-y-1">
               <div className="flex justify-between">
-                <span>Source ID:</span>
-                <span className="text-zinc-300">{fmt(p.source)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Event ID:</span>
-                <span className="text-zinc-300">{fmt(p.source_event_id || `NASA_FIRMS_${p.id}`)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Acq. Timestamp:</span>
-                <span className="text-zinc-300">{fmtDate(p.observed_at)}</span>
+                <span>Source:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.source)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Satellite:</span>
-                <span className="text-zinc-300">{fmt(p.satellite)}</span>
+                <span className="text-zinc-300 text-right">{fmt(p.satellite)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Instrument:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.instrument)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Latitude:</span>
+                <span className="text-zinc-300 text-right">{p.latitude !== undefined ? Number(p.latitude).toFixed(5) : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Longitude:</span>
+                <span className="text-zinc-300 text-right">{p.longitude !== undefined ? Number(p.longitude).toFixed(5) : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Acquired UTC:</span>
+                <span className="text-zinc-300 text-right">{fmtDateUTC(p.observed_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Local Time:</span>
+                <span className="text-zinc-300 text-right">{fmtDate(p.observed_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>FRP:</span>
+                <span className="text-zinc-300 text-right">{p.frp !== undefined && p.frp !== null ? `${p.frp} MW` : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Brightness:</span>
+                <span className="text-zinc-300 text-right">{temp !== undefined && temp !== null ? `${temp} K` : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Confidence:</span>
+                <span className="text-zinc-300 text-right">{fmt(sourceConf)}</span>
+              </div>
+              <div className="flex justify-between pt-1 mt-1 border-t border-zinc-800">
+                <span>Source ID:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.source_event_id || `NASA_FIRMS_${p.id}`)}</span>
               </div>
             </div>
           </>
