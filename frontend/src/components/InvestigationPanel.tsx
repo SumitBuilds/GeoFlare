@@ -68,6 +68,8 @@ export interface HotspotProperties {
   weather?: WeatherContext;
   corroboration?: string;
   corroboration_summary?: CorroborationSource[];
+  observations_timeline?: Record<string, unknown>[];
+  data_freshness_mins?: number;
   raw_metadata?: unknown;
   [key: string]: unknown;
 }
@@ -196,6 +198,7 @@ function Row({ label, value }: { label: string; value: string }) {
 const ACTIONS = [
   { label: 'Acknowledge', status: 'acknowledged', Icon: CheckCircle, style: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500' },
   { label: 'Investigating', status: 'investigating', Icon: Eye, style: 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500' },
+  { label: 'Confirm', status: 'confirmed', Icon: AlertCircle, style: 'bg-red-600 hover:bg-red-700 focus:ring-red-500' },
   { label: 'Resolve', status: 'resolved', Icon: XCircle, style: 'bg-green-600 hover:bg-green-700 focus:ring-green-500' },
   { label: 'False Positive', status: 'false_positive', Icon: ThumbsDown, style: 'bg-zinc-600 hover:bg-zinc-700 focus:ring-zinc-400' },
 ] as const;
@@ -223,6 +226,7 @@ export default function InvestigationPanel({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState(true);
+  const [history, setHistory] = useState<Record<string, unknown>[]>([]);
 
   // ── Fetch detail on selection ──────────────────────────────────────────────
   useEffect(() => {
@@ -237,6 +241,7 @@ export default function InvestigationPanel({
         setFetchError(null);
         setAlertStatus(null);
         setActionError(null);
+        setHistory([]);
         return;
       }
 
@@ -255,6 +260,16 @@ export default function InvestigationPanel({
           setData(props);
           setAlertStatus(props.alert_status ?? null);
           setBackendUp(true);
+          
+          try {
+            const histRes = await fetch(`http://localhost:8000/api/v1/alerts/${selectedId}/history`);
+            if (histRes.ok) {
+              const histData = await histRes.json();
+              setHistory(histData);
+            }
+          } catch {
+            // ignore
+          }
         } catch (err) {
           if (cancelled) return;
           const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -287,6 +302,16 @@ export default function InvestigationPanel({
   const handleAction = useCallback(
     async (status: string) => {
       if (!selectedId || !backendUp || actionLoading) return;
+      
+      let notes = '';
+      try {
+        const input = window.prompt(`Changing status to ${status.toUpperCase()}.\nEnter optional analyst notes/reason:`);
+        if (input === null) return; // User cancelled
+        notes = input;
+      } catch {
+        // ignore
+      }
+
       setActionLoading(status);
       setActionError(null);
       try {
@@ -295,7 +320,7 @@ export default function InvestigationPanel({
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, notes, reason: status, source: 'Analyst UI' }),
           }
         );
         if (!res.ok) {
@@ -303,6 +328,10 @@ export default function InvestigationPanel({
           throw new Error(detail.detail || `HTTP ${res.status}`);
         }
         setAlertStatus(status);
+        
+        // Refresh history
+        const histRes = await fetch(`http://localhost:8000/api/v1/alerts/${selectedId}/history`);
+        if (histRes.ok) setHistory(await histRes.json());
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Failed to update alert');
       } finally {
@@ -391,6 +420,7 @@ export default function InvestigationPanel({
             <SectionHead title="Observation" />
             <Row label="Observed At" value={fmtDate(p.observed_at)} />
             <Row label="Processed At" value={fmtDate(p.processed_at)} />
+            <Row label="Data Freshness" value={p.data_freshness_mins !== undefined ? `${p.data_freshness_mins} mins ago` : 'Not available'} />
             <Row label="Satellite" value={fmt(p.satellite)} />
             <Row label="Instrument" value={fmt(p.instrument)} />
             <Row label="Temperature / Brightness" value={temp !== undefined && temp !== null ? `${temp} K` : 'Not available'} />
@@ -568,6 +598,46 @@ export default function InvestigationPanel({
             <p className="text-xs text-zinc-300 leading-relaxed mt-1">
               {fmt(p.explanation)}
             </p>
+
+            {p.observations_timeline && p.observations_timeline.length > 0 && (
+              <>
+                <SectionHead title="Observation Timeline" />
+                <div className="space-y-2 mt-2">
+                  {p.observations_timeline.map((obs: Record<string, unknown>, idx: number) => (
+                    <div key={idx} className="bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px]">
+                      <div className="flex justify-between text-zinc-400 mb-1">
+                        <span>{fmtDate(obs.observed_at)}</span>
+                        <span>{String(obs.satellite || obs.source)} / {String(obs.instrument)}</span>
+                      </div>
+                      <div className="flex justify-between font-mono text-zinc-300">
+                        <span>Conf: {String(obs.confidence || '—')}</span>
+                        <span>{String(obs.data_quality_flags || 'No flags')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {history.length > 0 && (
+              <>
+                <SectionHead title="Alert History" />
+                <div className="space-y-2 mt-2 relative before:absolute before:inset-0 before:ml-[5px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-zinc-700 before:to-transparent">
+                  {history.map((h: Record<string, unknown>) => (
+                    <div key={String(h.id)} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                      <div className="flex items-center justify-center w-3 h-3 rounded-full border border-zinc-500 bg-zinc-800 text-slate-500 group-[.is-active]:text-emerald-50 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2"></div>
+                      <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px]">
+                        <div className="flex justify-between mb-1">
+                          <span className="font-bold text-zinc-200 uppercase">{String(h.new_status)}</span>
+                          <span className="text-zinc-500">{fmtDate(h.changed_at)}</span>
+                        </div>
+                        {Boolean(h.analyst_notes) && <p className="text-zinc-400 mt-1 italic">&quot;{String(h.analyst_notes)}&quot;</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             <SectionHead title="Data Verification" />
             <div className="mt-1 bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px] font-mono text-zinc-400 space-y-1">

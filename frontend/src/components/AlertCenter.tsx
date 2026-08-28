@@ -95,6 +95,7 @@ const STATUS_STYLES: Record<string, string> = {
   new: 'bg-blue-500/20 text-blue-300 border border-blue-500/40',
   acknowledged: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40',
   investigating: 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
+  confirmed: 'bg-red-500/20 text-red-300 border border-red-500/40',
   resolved: 'bg-green-500/20 text-green-300 border border-green-500/40',
   false_positive: 'bg-zinc-600/40 text-zinc-400 border border-zinc-500/40',
 };
@@ -103,6 +104,7 @@ const STATUS_LABELS: Record<string, string> = {
   new: 'New',
   acknowledged: 'Acknowledged',
   investigating: 'Investigating',
+  confirmed: 'Confirmed',
   resolved: 'Resolved',
   false_positive: 'False Positive',
 };
@@ -110,13 +112,14 @@ const STATUS_LABELS: Record<string, string> = {
 const ACTIONS = [
   { label: 'Acknowledge', status: 'acknowledged', Icon: CheckCircle, style: 'bg-indigo-700 hover:bg-indigo-600 focus:ring-indigo-400' },
   { label: 'Investigating', status: 'investigating', Icon: Eye, style: 'bg-purple-700 hover:bg-purple-600 focus:ring-purple-400' },
+  { label: 'Confirm', status: 'confirmed', Icon: AlertCircle, style: 'bg-red-700 hover:bg-red-600 focus:ring-red-400' },
   { label: 'Resolve', status: 'resolved', Icon: XCircle, style: 'bg-green-700 hover:bg-green-600 focus:ring-green-400' },
   { label: 'False Positive', status: 'false_positive', Icon: ThumbsDown, style: 'bg-zinc-700 hover:bg-zinc-600 focus:ring-zinc-400' },
 ] as const;
 
 // ─── Status filter chips ───────────────────────────────────────────────────────
 
-const STATUS_FILTERS = ['All', 'new', 'acknowledged', 'investigating', 'resolved', 'false_positive'] as const;
+const STATUS_FILTERS = ['All', 'new', 'acknowledged', 'investigating', 'confirmed', 'resolved', 'false_positive'] as const;
 const CLS_FILTERS = ['All', 'Industrial Fire/Flare', 'Natural/Vegetation', 'Unknown/Uncertain'] as const;
 
 // ─── Stats card ───────────────────────────────────────────────────────────────
@@ -342,6 +345,17 @@ export default function AlertCenter() {
 
   const handleAction = useCallback(async (id: number, status: string) => {
     if (!backendUp) return;
+    
+    // Optional prompt for analyst notes
+    let notes = '';
+    try {
+      const input = window.prompt(`Changing status to ${STATUS_LABELS[status] || status}.\nEnter optional analyst notes/reason:`);
+      if (input === null) return; // User cancelled
+      notes = input;
+    } catch {
+      // ignore
+    }
+
     const key = `${id}:${status}`;
     setActionLoading(key);
     setActionErrors(prev => { const n = { ...prev }; delete n[id]; return n; });
@@ -350,7 +364,7 @@ export default function AlertCenter() {
       const res = await fetch(`http://localhost:8000/api/v1/alerts/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, notes, reason: status }),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));

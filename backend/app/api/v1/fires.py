@@ -3,7 +3,7 @@ from typing import Optional
 from ...engine.rules import HotspotInput, classify_hotspot
 from ...engine.weather import get_weather_for_location
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 def build_corroboration_summary(all_obs_raw, hotspot_source):
     all_obs = all_obs_raw
@@ -133,8 +133,18 @@ async def get_fires(
         """)
     
     features = []
+    now_utc = datetime.now(timezone.utc)
     for row in rows:
-        summary, obs_sources = build_corroboration_summary(row['all_observations'], row['source'])
+        all_obs_raw = row['all_observations']
+        if isinstance(all_obs_raw, str):
+            try:
+                all_obs_list = json.loads(all_obs_raw)
+            except Exception:
+                all_obs_list = []
+        else:
+            all_obs_list = all_obs_raw or []
+            
+        summary, obs_sources = build_corroboration_summary(all_obs_raw, row['source'])
         
         data = HotspotInput(
             temperature=row['temperature'],
@@ -160,6 +170,11 @@ async def get_fires(
         # Attach weather context
         weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
         
+        data_freshness_mins = None
+        if row['observed_at']:
+            diff = now_utc - row['observed_at']
+            data_freshness_mins = round(diff.total_seconds() / 60)
+            
         feature = {
             "type": "Feature",
             "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
@@ -197,7 +212,9 @@ async def get_fires(
                 "score_components": cls_output.score_components,
                 "weather": weather.model_dump(),
                 "corroboration": cls_output.corroboration,
-                "corroboration_summary": summary
+                "corroboration_summary": summary,
+                "observations_timeline": all_obs_list,
+                "data_freshness_mins": data_freshness_mins
             }
         }
         features.append(feature)
@@ -260,7 +277,16 @@ async def get_fire(fire_id: int, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="Fire not found")
         
-    summary, obs_sources = build_corroboration_summary(row['all_observations'], row['source'])
+    all_obs_raw = row['all_observations']
+    if isinstance(all_obs_raw, str):
+        try:
+            all_obs_list = json.loads(all_obs_raw)
+        except Exception:
+            all_obs_list = []
+    else:
+        all_obs_list = all_obs_raw or []
+        
+    summary, obs_sources = build_corroboration_summary(all_obs_raw, row['source'])
     
     data = HotspotInput(
         temperature=row['temperature'],
@@ -281,6 +307,12 @@ async def get_fire(fire_id: int, request: Request):
     # Attach weather context
     weather = get_weather_for_location(row['latitude'], row['longitude'], row['observed_at'] or row['first_observed_at'])
     
+    now_utc = datetime.now(timezone.utc)
+    data_freshness_mins = None
+    if row['observed_at']:
+        diff = now_utc - row['observed_at']
+        data_freshness_mins = round(diff.total_seconds() / 60)
+        
     return {
         "type": "Feature",
         "geometry": json.loads(row['geometry']) if isinstance(row['geometry'], str) else row['geometry'],
@@ -318,7 +350,9 @@ async def get_fire(fire_id: int, request: Request):
             "score_components": cls_output.score_components,
             "weather": weather.model_dump(),
             "corroboration": cls_output.corroboration,
-            "corroboration_summary": summary
+            "corroboration_summary": summary,
+            "observations_timeline": all_obs_list,
+            "data_freshness_mins": data_freshness_mins
         }
     }
 
