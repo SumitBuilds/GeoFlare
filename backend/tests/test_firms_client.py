@@ -118,27 +118,32 @@ async def test_spatial_grouping():
     # Insert one observation, then insert a second one very close, and a third one far away.
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"])
     try:
-        # Clear hotspots first to have a clean slate for this test
+        # Use an isolated date (2001) so it never groups with real dev data (7-day window)
+        # and only delete test-specific records.
         async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM fire_observations")
-            await conn.execute("DELETE FROM hotspots")
+            await conn.execute("DELETE FROM fire_observations WHERE fire_event_id IN (SELECT id FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL')")
+            await conn.execute("DELETE FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL'")
             
-        csv_1 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n19.000,73.000,310.5,1.0,1.0,2026-08-27,1000,N,VIIRS,n,2.0,290.0,15.5,D\n"
-        # 0.005 degrees is approx 550m (within 1000m)
-        csv_2 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n19.004,73.000,310.5,1.0,1.0,2026-08-27,1005,N,VIIRS,n,2.0,290.0,15.5,D\n"
-        # 10.0 degrees is ~1100km (well outside 1000m)
-        csv_3 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n29.000,73.000,310.5,1.0,1.0,2026-08-27,1010,N,VIIRS,n,2.0,290.0,15.5,D\n"
+        csv_1 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n-80.000,0.000,310.5,1.0,1.0,2026-08-27,1000,N,VIIRS,n,2.0,290.0,15.5,D\n"
+        # 0.004 degrees latitude is approx 444m (within 1000m)
+        csv_2 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n-80.004,0.000,310.5,1.0,1.0,2026-08-27,1005,N,VIIRS,n,2.0,290.0,15.5,D\n"
+        # 10.0 degrees latitude is ~1110km (well outside 1000m)
+        csv_3 = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n-70.000,0.000,310.5,1.0,1.0,2026-08-27,1010,N,VIIRS,n,2.0,290.0,15.5,D\n"
         
         await process_firms_csv(csv_1, pool, "TEST_SPATIAL")
         await process_firms_csv(csv_2, pool, "TEST_SPATIAL")
         await process_firms_csv(csv_3, pool, "TEST_SPATIAL")
         
         async with pool.acquire() as conn:
-            hotspots = await conn.fetch("SELECT id, observation_count FROM hotspots")
+            hotspots = await conn.fetch("SELECT id, observation_count FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL'")
             assert len(hotspots) == 2, f"Expected 2 hotspots, got {len(hotspots)}"
             
             counts = [h['observation_count'] for h in hotspots]
             assert 2 in counts, "Expected one hotspot to group 2 close observations"
             assert 1 in counts, "Expected the distant observation to form its own hotspot"
     finally:
+        # Clean up test data
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM fire_observations WHERE fire_event_id IN (SELECT id FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL')")
+            await conn.execute("DELETE FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL'")
         await pool.close()
