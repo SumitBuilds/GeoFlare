@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   X,
   Loader2,
@@ -227,8 +227,72 @@ export default function InvestigationPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState(true);
   const [history, setHistory] = useState<Record<string, unknown>[]>([]);
+  
+  // Imagery state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [imagery, setImagery] = useState<any>(null);
+  const [imageryLoading, setImageryLoading] = useState(false);
+  const [imageryError, setImageryError] = useState<string | null>(null);
+
+  const miniMapContainer = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const miniMapRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!imagery || !miniMapContainer.current) return;
+    
+    let cancelled = false;
+    
+    const initMiniMap = async () => {
+      const L = await import('leaflet');
+      await import('leaflet/dist/leaflet.css');
+      if (cancelled) return;
+      
+      if (!miniMapRef.current && miniMapContainer.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fProps = fallbackProps as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pProps = (data || {}) as any;
+        const lat = pProps.latitude ?? pProps.lat ?? fProps?.latitude ?? fProps?.lat ?? fProps?.marker?.lat ?? 0;
+        const lng = pProps.longitude ?? pProps.lng ?? fProps?.longitude ?? fProps?.lng ?? fProps?.marker?.lng ?? 0;
+        
+        const map = L.map(miniMapContainer.current, { 
+          center: [lat, lng], 
+          zoom: 16,
+          zoomControl: true,
+          dragging: true,
+          scrollWheelZoom: true
+        });
+        
+        L.tileLayer(imagery.wmts_url, {
+          maxZoom: imagery.max_zoom
+        }).addTo(map);
+
+        L.circleMarker([lat, lng], {
+          radius: 6,
+          color: '#ef4444',
+          fillColor: '#ef4444',
+          fillOpacity: 0.8,
+          weight: 2
+        }).addTo(map);
+
+        miniMapRef.current = map;
+      }
+    };
+    
+    initMiniMap();
+    
+    return () => {
+      cancelled = true;
+      if (miniMapRef.current) {
+        miniMapRef.current.remove();
+        miniMapRef.current = null;
+      }
+    };
+  }, [imagery, fallbackProps, data]);
 
   // ── Fetch detail on selection ──────────────────────────────────────────────
+
   useEffect(() => {
     let cancelled = false;
 
@@ -242,6 +306,8 @@ export default function InvestigationPanel({
         setAlertStatus(null);
         setActionError(null);
         setHistory([]);
+        setImagery(null);
+        setImageryError(null);
         return;
       }
 
@@ -269,6 +335,33 @@ export default function InvestigationPanel({
             }
           } catch {
             // ignore
+          }
+
+          // Fetch imagery metadata
+          if (props.observed_at) {
+            try {
+              setImageryLoading(true);
+              setImageryError(null);
+              const dateStr = new Date(props.observed_at).toISOString().split('T')[0];
+              // fallback for lat/lng
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fProps = fallbackProps as any;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const pProps = props as any;
+              const lat = pProps.latitude ?? pProps.lat ?? fProps?.latitude ?? fProps?.lat ?? fProps?.marker?.lat ?? 0;
+              const lng = pProps.longitude ?? pProps.lng ?? fProps?.longitude ?? fProps?.lng ?? fProps?.marker?.lng ?? 0;
+              const imgRes = await fetch(`http://localhost:8000/api/v1/imagery/preview?date=${dateStr}&lat=${lat}&lng=${lng}`);
+              if (imgRes.ok) {
+                const imgData = await imgRes.json();
+                setImagery(imgData);
+              } else {
+                setImageryError('Imagery unavailable');
+              }
+            } catch (err) {
+              setImageryError('Imagery unavailable');
+            } finally {
+              setImageryLoading(false);
+            }
           }
         } catch (err) {
           if (cancelled) return;
@@ -430,6 +523,39 @@ export default function InvestigationPanel({
             <Row label="Observation Count" value={fmt(p.observation_count)} />
             <Row label="Persistence Confidence" value={fmt(p.persistence_confidence)} />
             <Row label="Approximate Movement" value={p.approx_movement !== undefined && p.approx_movement !== null ? `${p.approx_movement} m` : 'Not available'} />
+
+            <SectionHead title="Satellite Verification" />
+            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2 mt-1 mb-2">
+              {imageryLoading ? (
+                <div className="flex justify-center items-center py-4 text-zinc-500">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span className="text-xs">Checking imagery availability...</span>
+                </div>
+              ) : imageryError ? (
+                <p className="text-xs text-yellow-500 font-medium py-2 text-center bg-yellow-500/10 rounded">
+                  Imagery unavailable.
+                </p>
+              ) : imagery ? (
+                <>
+                  <div className="space-y-1">
+                    <Row label="Source" value={imagery.source_name} />
+                    <Row label="Image Date" value={imagery.imagery_date} />
+                    <Row label="FIRMS Date" value={fmtDate(p.observed_at)} />
+                    <Row label="Cloud Cover" value={imagery.cloud_cover} />
+                    <Row label="Processing" value={imagery.processing_timestamp} />
+                  </div>
+                  <div className="pt-2">
+                    <div 
+                      ref={miniMapContainer} 
+                      className="w-full h-40 rounded border border-zinc-700 overflow-hidden" 
+                    />
+                  </div>
+                  <div className="text-[9px] text-zinc-600 text-center mt-2 px-1 leading-tight">
+                    {imagery.attribution}
+                  </div>
+                </>
+              ) : null}
+            </div>
 
             <SectionHead title="Risk Assessment" />
             <Row label="Severity" value={fmt(p.severity)} />
