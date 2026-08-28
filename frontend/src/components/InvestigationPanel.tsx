@@ -523,11 +523,6 @@ export default function InvestigationPanel({
             <Row label="Observed At" value={fmtDate(p.observed_at)} />
             <Row label="Processed At" value={fmtDate(p.processed_at)} />
             <Row label="Data Freshness" value={p.data_freshness_mins !== undefined ? `${p.data_freshness_mins} mins ago` : 'Not available'} />
-            <Row label="Satellite" value={fmt(p.satellite)} />
-            <Row label="Instrument" value={fmt(p.instrument)} />
-            <Row label="Temperature / Brightness" value={temp !== undefined && temp !== null ? `${temp} K` : 'Not available'} />
-            <Row label="FRP" value={p.frp !== undefined && p.frp !== null ? `${p.frp} MW` : 'Not available'} />
-            <Row label="Source Confidence" value={fmt(sourceConf)} />
             <Row label="Days Observed" value={fmt(p.days_observed)} />
             <Row label="Observation Count" value={fmt(p.observation_count)} />
             <Row label="Persistence Confidence" value={fmt(p.persistence_confidence)} />
@@ -691,19 +686,23 @@ export default function InvestigationPanel({
                 </span>
               </div>
               <div className="space-y-1 mt-2">
-                {p.corroboration_summary?.map((src, idx) => (
-                  <div key={idx} className="text-[10px] border-b border-zinc-800 last:border-0 pb-1 last:pb-0">
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-zinc-300">{src.source_name}</span>
-                      <span className={`px-1 rounded ${
-                        src.status === 'Detected' ? 'bg-green-900/30 text-green-400' :
-                        src.status === 'Synthetic scenario' ? 'bg-purple-900/30 text-purple-400' :
-                        src.status === 'Not connected' ? 'bg-zinc-800 text-zinc-500' :
-                        'bg-red-900/30 text-red-400'
-                      }`}>
-                        {src.status}
-                      </span>
-                    </div>
+                {p.corroboration_summary?.map((src, idx) => {
+                  let displayStatus = src.status;
+                  if (displayStatus === 'Not connected') displayStatus = 'No matching observation';
+
+                  return (
+                    <div key={idx} className="text-[10px] border-b border-zinc-800 last:border-0 pb-1 last:pb-0">
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-zinc-300">{src.source_name}</span>
+                        <span className={`px-1 rounded ${
+                          src.status === 'Detected' ? 'bg-green-900/30 text-green-400' :
+                          src.status === 'Synthetic scenario' ? 'bg-purple-900/30 text-purple-400' :
+                          src.status === 'Not connected' ? 'bg-zinc-800 text-zinc-500' :
+                          'bg-red-900/30 text-red-400'
+                        }`}>
+                          {displayStatus}
+                        </span>
+                      </div>
                     {src.status === 'Detected' && (
                       <div className="flex justify-between text-zinc-500 mt-0.5">
                         <span>{src.timestamp ? fmtDate(src.timestamp) : ''}</span>
@@ -711,7 +710,8 @@ export default function InvestigationPanel({
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -797,7 +797,11 @@ export default function InvestigationPanel({
                 <span className="text-zinc-300 text-right">{p.longitude !== undefined ? Number(p.longitude).toFixed(5) : 'Not available'}</span>
               </div>
               <div className="flex justify-between">
-                <span>Acquired UTC:</span>
+                <span>Acquisition Date:</span>
+                <span className="text-zinc-300 text-right">{p.observed_at ? new Date(p.observed_at).toISOString().split('T')[0] : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Acquisition Time (UTC):</span>
                 <span className="text-zinc-300 text-right">{fmtDateUTC(p.observed_at)}</span>
               </div>
               <div className="flex justify-between">

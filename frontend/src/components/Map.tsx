@@ -184,15 +184,23 @@ export default function MapComponent() {
       let latestFirmsDateStr = "0000-00-00";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       firesData.features.forEach((f: any) => {
+        const source = f.properties?.source || '';
+
+        // Track the latest FIRMS live date regardless of its date bounds
+        if (source.includes('FIRMS') && !source.includes('MOCK') && !source.includes('DEMO') && !source.includes('TEST')) {
+          const end = f.properties?.observed_at?.substring(0, 10);
+          if (end && end > latestFirmsDateStr) latestFirmsDateStr = end;
+        }
+
+        // Exclude synthetic/test records from stretching the timeline boundaries
+        if (source.includes('MOCK') || source.includes('DEMO') || source.includes('TEST')) {
+          return;
+        }
+
         const start = f.properties?.first_observed_at?.substring(0, 10);
         const end = f.properties?.observed_at?.substring(0, 10);
         if (start && start < minDateStr) minDateStr = start;
         if (end && end > maxDateStr) maxDateStr = end;
-
-        const source = f.properties?.source || '';
-        if (source.includes('FIRMS') && !source.includes('MOCK') && !source.includes('DEMO')) {
-          if (end && end > latestFirmsDateStr) latestFirmsDateStr = end;
-        }
       });
       const uniqueDates: string[] = [];
       if (minDateStr <= maxDateStr && maxDateStr !== "0000-00-00") {
