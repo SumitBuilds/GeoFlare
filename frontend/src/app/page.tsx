@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import AlertCenter from '@/components/AlertCenter';
 import AnalyticsDashboard from '@/components/AnalyticsDashboard';
-import { MapIcon, Bell, BarChart } from 'lucide-react';
+import { MapIcon, Bell, BarChart, RefreshCw, Loader2 } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -19,10 +19,56 @@ const Map = dynamic(() => import('@/components/Map'), {
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'map' | 'alerts' | 'analytics'>('map');
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/v1/ingestion/status');
+      if (res.ok) {
+        const data = await res.json();
+        // find the most recent successful ingest
+        let latest: string | null = null;
+        for (const s of data.sources || []) {
+          if (s.last_successful_ingest) {
+            if (!latest || new Date(s.last_successful_ingest) > new Date(latest)) {
+              latest = s.last_successful_ingest;
+            }
+          }
+        }
+        setLastUpdate(latest);
+      }
+    } catch (err) {
+      console.error("Failed to fetch status:", err);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    setRefreshError(null);
+    try {
+      // Refresh the VIIRS source
+      const res = await fetch('http://localhost:8000/api/v1/ingestion/firms?source=VIIRS_SNPP_NRT', {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchStatus();
+      // force reload map
+      window.dispatchEvent(new Event('refresh-map'));
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Refresh failed');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 60000); // Check every minute
+    return () => clearInterval(interval);
   }, []);
 
   if (!mounted) {
@@ -75,11 +121,29 @@ export default function Home() {
           </div>
         </div>
 
-        <div
-          className="inline-flex items-center rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1 text-xs font-medium text-yellow-500"
-          suppressHydrationWarning
-        >
-          Demo Mode
+        <div className="flex items-center gap-4" suppressHydrationWarning>
+          <div className="text-xs text-zinc-400 text-right hidden md:block">
+            {refreshError ? (
+              <span className="text-red-400">Update failed</span>
+            ) : lastUpdate ? (
+              <span>Last updated: {new Date(lastUpdate).toLocaleTimeString()}</span>
+            ) : (
+              <span>Status: Unknown</span>
+            )}
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 disabled:opacity-50"
+            suppressHydrationWarning
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh Live Data
+          </button>
         </div>
       </header>
 

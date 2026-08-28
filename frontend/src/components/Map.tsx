@@ -2,100 +2,17 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
-import InvestigationPanel, { type HotspotProperties } from './InvestigationPanel';
+import InvestigationPanel, { type HotspotProperties, type GeographicAsset } from './InvestigationPanel';
 
 // ─── Fallback demo data ───────────────────────────────────────────────────────
 
-const FALLBACK_FIRES = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const FALLBACK_FIRES: { type: string; features: any[] } = {
   type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.00, 19.11] },
-      properties: {
-        id: 1,
-        classification: 'Industrial Fire/Flare',
-        subclass: 'Gas Flare',
-        temperature: 1200.5,
-        frp: 45.2,
-        confidence: 'High',
-        classification_confidence: 0.99,
-        distance_to_industrial: 0,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Hotspot is persistent and located very close to an industrial facility, strongly indicating an industrial flare or fire.',
-        evidence: [
-          'Distance to industrial zone is 0m (<= 1000m).',
-          'Hotspot is persistent (observed for 7 days, 12 times).',
-          "Located within 1km of industrial zone of type 'Refinery'.",
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.06, 19.04] },
-      properties: {
-        id: 2,
-        classification: 'Natural/Vegetation',
-        subclass: 'Forest Fire',
-        temperature: 600.0,
-        frp: 12.5,
-        confidence: 'Nominal',
-        classification_confidence: 0.85,
-        distance_to_industrial: 8000,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Hotspot is far from industrial areas and lacks long-term persistence, consistent with a natural vegetation fire.',
-        evidence: [
-          'Distance to industrial zone is 8000m (> 1000m).',
-          'Not persistent and located far (>2km) from known industrial infrastructure.',
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [73.025, 19.09] },
-      properties: {
-        id: 3,
-        classification: 'Unknown/Uncertain',
-        subclass: 'Unknown',
-        temperature: 400.0,
-        frp: 5.0,
-        confidence: 'Low',
-        classification_confidence: 0.50,
-        distance_to_industrial: 2000,
-        alert_status: 'new',
-        satellite: 'DEMO',
-        observed_at: '2024-01-15T06:30:00Z',
-        explanation: 'Evidence is conflicting, borderline, or insufficient to confidently classify as natural or industrial.',
-        evidence: [
-          'Distance to industrial zone is 2000m (> 1000m).',
-          'Located in the buffer zone (1km - 2km) from industrial areas.',
-        ],
-      },
-    },
-  ],
+  features: [],
 };
 
-const FALLBACK_ZONES = {
-  type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[[72.99, 19.12], [73.01, 19.12], [73.01, 19.10], [72.99, 19.10], [72.99, 19.12]]],
-      },
-      properties: {
-        id: 1,
-        name: 'Thane-Belapur Petrochemical Plant (DEMO DATA)',
-        facility_type: 'Refinery',
-      },
-    },
-  ],
-};
+// Nearby industrial zones are fetched per-hotspot, not loaded globally.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,16 +52,45 @@ export default function MapComponent() {
   const haloRef = useRef<any>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const windLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const assetsLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nearbyZonesLayerRef = useRef<any>(null);
+
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
+  const [filterCorroboration, setFilterCorroboration] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
+  const [showWind, setShowWind] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
+  const [showImpactRadius, setShowImpactRadius] = useState(true);
+  const [showDownwindOnly, setShowDownwindOnly] = useState(false);
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [impactData, setImpactData] = useState<any | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [currentDateIdx, setCurrentDateIdx] = useState<number>(0);
+  const [hasNoData, setHasNoData] = useState(false);
 
   const handleClose = useCallback(() => {
     setSelectedId(null);
     setSelectedProps(null);
+    setShowWind(false);
+    setShowAssets(false);
+    setShowImpactRadius(true);
+    setShowDownwindOnly(false);
+    setImpactData(null);
+    setImpactError(null);
+    setSelectedAssetId(null);
+    // Clear nearby zones when panel closes
+    nearbyZonesLayerRef.current?.remove();
+    nearbyZonesLayerRef.current = null;
   }, []);
 
   // ── Map init ──────────────────────────────────────────────────────────────
@@ -168,47 +114,29 @@ export default function MapComponent() {
       if (cancelled) { map.remove(); return; }
       mapRef.current = map;
 
-      // CartoDB Dark Matter — free, no token
+      // Esri Dark Gray Base — free, no token needed for non-commercial
       L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
         {
           attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
           maxZoom: 19,
         }
       ).addTo(map);
 
       let firesData = FALLBACK_FIRES;
-      let zonesData = FALLBACK_ZONES;
 
       try {
-        const [firesRes, zonesRes] = await Promise.all([
-          fetch('http://localhost:8000/api/v1/fires').catch(() => null),
-          fetch('http://localhost:8000/api/v1/industrial-zones').catch(() => null),
-        ]);
+        const firesRes = await fetch('http://localhost:8000/api/v1/fires').catch(() => null);
         if (firesRes?.ok) firesData = await firesRes.json();
-        if (zonesRes?.ok) zonesData = await zonesRes.json();
       } catch (err) {
         console.warn('Backend unavailable, using fallback data', err);
       }
 
       if (cancelled) return;
 
-      // Industrial zone polygons
-      zonesData.features.forEach((feature) => {
-        if (feature.geometry.type === 'Polygon') {
-          const coords = (feature.geometry as { type: string; coordinates: number[][][] }).coordinates[0];
-          const latlngs: [number, number][] = coords.map(([lng, lat]) => [lat, lng]);
-          L.polygon(latlngs, {
-            color: '#1e293b',
-            fillColor: '#475569',
-            fillOpacity: 0.5,
-            weight: 2,
-          })
-            .addTo(map)
-            .bindTooltip(feature.properties?.name || 'Industrial Zone');
-        }
-      });
+      // Industrial zones are NOT loaded globally.
+      // They are fetched per-hotspot when the user selects one (see nearbyZones useEffect below).
 
       // Hotspot markers
       firesData.features.forEach((feature) => {
@@ -251,15 +179,33 @@ export default function MapComponent() {
         });
       });
 
+      let minDateStr = "9999-99-99";
+      let maxDateStr = "0000-00-00";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const uniqueDates = Array.from(new Set(firesData.features.map((f: any) => {
-        const obs = f.properties?.observed_at;
-        return obs ? obs.substring(0, 10) : new Date().toISOString().substring(0, 10);
-      }))).sort();
+      firesData.features.forEach((f: any) => {
+        const start = f.properties?.first_observed_at?.substring(0, 10);
+        const end = f.properties?.observed_at?.substring(0, 10);
+        if (start && start < minDateStr) minDateStr = start;
+        if (end && end > maxDateStr) maxDateStr = end;
+      });
+      const uniqueDates: string[] = [];
+      if (minDateStr <= maxDateStr && maxDateStr !== "0000-00-00") {
+        const curr = new Date(minDateStr);
+        const last = new Date(maxDateStr);
+        while (curr <= last) {
+          uniqueDates.push(curr.toISOString().substring(0, 10));
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
 
       if (!cancelled) {
-        setDates(uniqueDates);
-        setCurrentDateIdx(uniqueDates.length - 1);
+        if (uniqueDates.length > 0) {
+          setDates(uniqueDates);
+          setCurrentDateIdx(uniqueDates.length - 1);
+          setHasNoData(false);
+        } else {
+          setHasNoData(true);
+        }
         setLoading(false);
       }
     };
@@ -272,7 +218,9 @@ export default function MapComponent() {
       mapRef.current = null;
       markersRef.current = [];
       haloRef.current = null;
+      nearbyZonesLayerRef.current = null;
     };
+
   }, []);
 
   // ── Filter markers ────────────────────────────────────────────────────────
@@ -289,10 +237,17 @@ export default function MapComponent() {
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
-      // Date filter logic
+      if (show && filterCorroboration !== 'All') {
+        const corr = properties.corroboration || 'Weak';
+        if (filterCorroboration !== corr) show = false;
+      }
+      
+      // Date filter logic (show if activeDateStr falls between first_observed_at and observed_at)
       if (show && activeDateStr) {
-        const obs = properties.observed_at ? properties.observed_at.substring(0, 10) : '';
-        if (obs > activeDateStr) show = false;
+        const start = properties.first_observed_at ? String(properties.first_observed_at).substring(0, 10) : '';
+        const end = properties.observed_at ? String(properties.observed_at).substring(0, 10) : '';
+        if (start && activeDateStr < start) show = false;
+        if (end && activeDateStr > end) show = false;
       }
       
       if (show) {
@@ -302,21 +257,22 @@ export default function MapComponent() {
         marker.remove();
       }
     });
-  }, [filter, currentDateIdx, dates]);
+  }, [filter, filterCorroboration, currentDateIdx, dates]);
 
-  // ── 1 km halo ─────────────────────────────────────────────────────────────
+  // ── Impact Radius Halo ────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
     haloRef.current?.remove();
     haloRef.current = null;
 
-    if (selectedId !== null) {
+    if (selectedId !== null && showImpactRadius) {
       const entry = markersRef.current.find((m) => m.id === selectedId);
       if (entry) {
         (async () => {
           const L = await import('leaflet');
+          const radius = impactData?.impact_radius_m || 1000;
           haloRef.current = L.circle([entry.lat, entry.lng], {
-            radius: 1000,
+            radius: radius,
             color: '#ffffff',
             fillColor: '#ffffff',
             fillOpacity: 0.06,
@@ -326,7 +282,235 @@ export default function MapComponent() {
         })().catch(console.error);
       }
     }
+  }, [selectedId, showImpactRadius, impactData]);
+
+  // ── Nearby Industrial Zones (per selected hotspot) ────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    // Always clear previous zones first
+    nearbyZonesLayerRef.current?.remove();
+    nearbyZonesLayerRef.current = null;
+
+    if (selectedId === null) return;
+
+    const entry = markersRef.current.find((m) => m.id === selectedId);
+    if (!entry) return;
+
+    (async () => {
+      try {
+        const L = await import('leaflet');
+        const res = await fetch(
+          `http://localhost:8000/api/v1/industrial-zones/nearby?lat=${entry.lat}&lng=${entry.lng}&radius_m=5000`
+        );
+        if (!res.ok) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data: { type: string; features: any[] } = await res.json();
+        if (!data.features.length) return;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const layers: any[] = [];
+        data.features.forEach((feature) => {
+          if (feature.geometry?.type === 'Polygon') {
+            const coords = (feature.geometry.coordinates as number[][][])[0];
+            const latlngs: [number, number][] = coords.map(([lng, lat]) => [lat, lng]);
+            const poly = L.polygon(latlngs, {
+              color: '#334155',       // slate-700
+              fillColor: '#475569',   // slate-600
+              fillOpacity: 0.45,
+              weight: 2,
+              dashArray: '4 3',
+            });
+            const distLabel = feature.properties?.distance_m != null
+              ? ` — ${(feature.properties.distance_m / 1000).toFixed(1)} km away`
+              : '';
+            poly.bindTooltip(
+              `<b>${feature.properties?.name || 'Industrial Zone'}</b><br/><span style="font-size:11px;color:#94a3b8">${feature.properties?.facility_type || ''}${distLabel}</span>`,
+              { sticky: true }
+            );
+            layers.push(poly);
+          }
+        });
+
+        if (layers.length && mapRef.current) {
+          nearbyZonesLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+        }
+      } catch (err) {
+        console.warn('Could not load nearby industrial zones', err);
+      }
+    })();
   }, [selectedId]);
+
+  // ── Wind & Corridor ───────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    windLayerRef.current?.remove();
+    windLayerRef.current = null;
+
+    if (showWind && selectedProps?.weather && selectedId !== null) {
+      const entry = markersRef.current.find((m) => m.id === selectedId);
+      if (entry) {
+        (async () => {
+          const L = await import('leaflet');
+          const weather = selectedProps.weather;
+          if (!weather) return;
+
+          const getDestination = (lat: number, lng: number, distanceKm: number, bearingDeg: number): [number, number] => {
+            const R = 6371;
+            const d = distanceKm;
+            const lat1 = lat * Math.PI / 180;
+            const lng1 = lng * Math.PI / 180;
+            const brng = bearingDeg * Math.PI / 180;
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d / R) + Math.cos(lat1) * Math.sin(d / R) * Math.cos(brng));
+            const lng2 = lng1 + Math.atan2(Math.sin(brng) * Math.sin(d / R) * Math.cos(lat1), Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2));
+            return [lat2 * 180 / Math.PI, lng2 * 180 / Math.PI];
+          };
+
+          const downwind = (weather.wind_direction + 180) % 360;
+          const lengthKm = Math.min(50, Math.max(5, weather.wind_speed * 3)); 
+          
+          // Polygon (Corridor)
+          const pLeft = getDestination(entry.lat, entry.lng, lengthKm, downwind - 15);
+          const pRight = getDestination(entry.lat, entry.lng, lengthKm, downwind + 15);
+          const corridor = L.polygon([[entry.lat, entry.lng], pLeft, pRight], {
+            color: '#a1a1aa', // zinc-400
+            fillColor: '#71717a', // zinc-500
+            fillOpacity: 0.3,
+            weight: 1,
+            dashArray: '4 4'
+          });
+          corridor.bindTooltip("Indicative smoke corridor — not a certified dispersion model.", { sticky: true });
+
+          // Arrow shaft
+          const shaftEnd = getDestination(entry.lat, entry.lng, lengthKm * 0.4, downwind);
+          const arrowShaft = L.polyline([[entry.lat, entry.lng], shaftEnd], {
+            color: '#3b82f6', // blue-500
+            weight: 3
+          });
+
+          // Arrow head
+          const headLeft = getDestination(shaftEnd[0], shaftEnd[1], lengthKm * 0.05, downwind - 135);
+          const headRight = getDestination(shaftEnd[0], shaftEnd[1], lengthKm * 0.05, downwind + 135);
+          const arrowHead = L.polygon([shaftEnd, headLeft, headRight], {
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 1,
+            weight: 1
+          });
+          
+          arrowShaft.bindTooltip(`Wind blowing toward ${Math.round(downwind)}° at ${weather.wind_speed} ${weather.units}`, { permanent: false });
+          
+          windLayerRef.current = L.layerGroup([corridor, arrowShaft, arrowHead]).addTo(mapRef.current);
+        })().catch(console.error);
+      }
+    }
+  }, [showWind, selectedProps, selectedId]);
+
+  // ── Impact Data Fetch ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!showAssets || selectedId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setImpactData(null);
+      setImpactError(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      setImpactLoading(true);
+      setImpactError(null);
+      try {
+        const res = await fetch(`http://localhost:8000/api/v1/fires/${selectedId}/impact`, { signal: controller.signal });
+        if (!res.ok) throw new Error('Failed to fetch impact data');
+        const data = await res.json();
+        setImpactData(data);
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error(err);
+          setImpactError('Unable to load nearby assets.');
+        }
+      } finally {
+        setImpactLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [showAssets, selectedId]);
+
+  // ── Render Nearby Assets ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    assetsLayerRef.current?.remove();
+    assetsLayerRef.current = null;
+
+    if (showAssets && impactData) {
+      (async () => {
+        const L = await import('leaflet');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const layers: any[] = [];
+
+        (impactData.assets as GeographicAsset[]).forEach((asset) => {
+          if (showDownwindOnly && !asset.downwind) return;
+          const isSelected = asset.id === selectedAssetId;
+          
+          let iconHtml = '';
+          const type = asset.asset_type;
+          const bg = asset.downwind ? '#ef4444' : '#6b7280'; // red if downwind, gray if not
+          const border = isSelected ? 'border: 2px solid #a855f7;' : 'border: 2px solid #000;';
+          
+          // Emojis based on asset type
+          let emoji = '🏢';
+          if (type === 'school') emoji = '🏫';
+          else if (type === 'hospital' || type === 'clinic') emoji = '🏥';
+          else if (type === 'residential') emoji = '🏠';
+          else if (type === 'road') emoji = '🛣️';
+          else if (type === 'railway') emoji = '🛤️';
+          else if (type === 'power') emoji = '⚡';
+          else if (type === 'fuel') emoji = '⛽';
+          else if (type === 'chemical') emoji = '🏭';
+          else if (type === 'fire_station') emoji = '🚒';
+          else if (type === 'police') emoji = '🚓';
+          
+          iconHtml = `<div style="
+            width:24px; height:24px;
+            background:${bg};
+            ${border}
+            border-radius:50%;
+            display:flex; align-items:center; justify-content:center;
+            font-size:12px;
+            box-shadow:${isSelected ? '0 0 10px #a855f7' : '0 0 4px rgba(0,0,0,0.8)'};
+            ${asset.inside_impact_radius && !isSelected ? 'box-shadow: 0 0 8px #ef4444;' : ''}
+          ">${emoji}</div>`;
+
+          const icon = L.divIcon({
+            className: '',
+            html: iconHtml,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          });
+
+          const marker = L.marker([asset.latitude, asset.longitude], { icon });
+          marker.bindPopup(`
+            <div style="font-family:sans-serif;font-size:12px;color:#333;">
+              <strong style="font-size:14px">${asset.name}</strong><br/>
+              <span style="text-transform:uppercase;color:#666;font-size:10px">${asset.asset_type}</span><br/>
+              Distance: <b>${asset.distance_m}m</b><br/>
+              ${asset.inside_impact_radius ? '<span style="color:red;font-weight:bold">Inside Impact Radius</span><br/>' : ''}
+              ${asset.downwind ? '<span style="color:red;font-weight:bold">Downwind</span><br/>' : ''}
+              <i style="font-size:9px;color:#888">${asset.source} ${asset.is_demo ? '(Demo)' : ''}</i>
+            </div>
+          `);
+          
+          // Clicking marker on map selects it in panel
+          marker.on('click', () => {
+             setSelectedAssetId(String(asset.id));
+          });
+          
+          layers.push(marker);
+        });
+
+        assetsLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+      })();
+    }
+  }, [showAssets, impactData, selectedAssetId, showDownwindOnly]);
 
   return (
     <div className="absolute inset-0 bg-zinc-950">
@@ -335,6 +519,19 @@ export default function MapComponent() {
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 text-white backdrop-blur-sm">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-blue-500" />
           <p className="text-lg font-medium">Loading Map Data…</p>
+        </div>
+      )}
+
+      {/* No Data Overlay */}
+      {!loading && hasNoData && (
+        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center pointer-events-none">
+          <div className="bg-zinc-900/90 border border-yellow-500/50 rounded-xl p-6 shadow-xl backdrop-blur flex flex-col items-center max-w-sm text-center">
+            <span className="text-4xl mb-3">🛰️</span>
+            <h3 className="text-lg font-semibold text-white mb-2">No Data Available</h3>
+            <p className="text-sm text-zinc-400">
+              No NASA FIRMS observations available for this selection. Try refreshing live data.
+            </p>
+          </div>
         </div>
       )}
 
@@ -363,14 +560,50 @@ export default function MapComponent() {
             ))}
           </div>
 
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur flex flex-col gap-2">
+            <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Corroboration Level</h4>
+            <div className="text-sm flex gap-2 flex-wrap">
+              {['All', 'Strong', 'Partial', 'Weak'].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilterCorroboration(f)}
+                  aria-pressed={filterCorroboration === f}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
+                    filterCorroboration === f
+                      ? (f === 'Strong' ? 'bg-green-600 text-white font-medium' : f === 'Partial' ? 'bg-orange-600 text-white font-medium' : f === 'Weak' ? 'bg-red-600 text-white font-medium' : 'bg-blue-600 text-white font-medium')
+                      : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Impact/Asset Filters (only shown if assets are active) */}
+          {showAssets && (
+             <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex flex-col gap-2">
+                <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Impact Controls</h4>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+                  <input type="checkbox" checked={showImpactRadius} onChange={(e) => setShowImpactRadius(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-purple-500 focus:ring-purple-500 focus:ring-offset-zinc-900" />
+                  Show Impact Radius
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+                  <input type="checkbox" checked={showDownwindOnly} onChange={(e) => setShowDownwindOnly(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-purple-500 focus:ring-purple-500 focus:ring-offset-zinc-900" />
+                  Only Show Downwind Assets
+                </label>
+             </div>
+          )}
+
           {/* Legend */}
-          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52">
-            <h4 className="font-bold mb-2 text-white text-xs uppercase tracking-wide">Legend</h4>
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52 max-h-[40vh] overflow-y-auto custom-scrollbar">
+            <h4 className="font-bold mb-2 text-white text-[10px] uppercase tracking-wide">Legend</h4>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Flare</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span className="text-xs">Gas Flare</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span className="text-xs">Natural/Vegetation</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span className="text-xs">Unknown/Uncertain</span></div>
+              
               <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">
                 <div className="w-5 h-4 bg-slate-600 opacity-50 border-2 border-slate-800 shrink-0"></div>
                 <span className="text-xs">Industrial Zone</span>
@@ -379,6 +612,23 @@ export default function MapComponent() {
                 <div className="w-5 h-5 rounded-full border-2 border-white border-dashed bg-white/10 shrink-0"></div>
                 <span className="text-xs">1 km Halo (selected)</span>
               </div>
+
+              {showAssets && (
+                <>
+                  <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">
+                    <div className="w-5 h-5 rounded-full bg-gray-500 border-2 border-black shrink-0 flex items-center justify-center text-[10px]">🏢</div>
+                    <span className="text-xs">Nearby Asset</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-red-500 border-2 border-black shrink-0 flex items-center justify-center text-[10px]">🏢</div>
+                    <span className="text-xs">Downwind Asset</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full border border-red-500 shrink-0 shadow-[0_0_8px_#ef4444]"></div>
+                    <span className="text-xs">Inside Impact Radius</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -424,6 +674,15 @@ export default function MapComponent() {
         selectedId={selectedId}
         fallbackProps={selectedProps}
         onClose={handleClose}
+        showWind={showWind}
+        onToggleWind={setShowWind}
+        showAssets={showAssets}
+        onToggleAssets={setShowAssets}
+        impactData={impactData}
+        impactLoading={impactLoading}
+        impactError={impactError}
+        selectedAssetId={selectedAssetId}
+        onAssetClick={(asset: GeographicAsset) => setSelectedAssetId(String(asset.id))}
       />
     </div>
   );
