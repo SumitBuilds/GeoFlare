@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
-import InvestigationPanel, { type HotspotProperties } from './InvestigationPanel';
+import InvestigationPanel, { type HotspotProperties, type GeographicAsset } from './InvestigationPanel';
 
 // ─── Fallback demo data ───────────────────────────────────────────────────────
 
@@ -75,6 +75,7 @@ export default function MapComponent() {
 
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
+  const [filterCorroboration, setFilterCorroboration] = useState('All');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedProps, setSelectedProps] = useState<HotspotProperties | null>(null);
   const [showWind, setShowWind] = useState(false);
@@ -263,6 +264,11 @@ export default function MapComponent() {
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
+      if (show && filterCorroboration !== 'All') {
+        const corr = properties.corroboration || 'Weak';
+        if (filterCorroboration !== corr) show = false;
+      }
+      
       // Date filter logic (show if activeDateStr falls between first_observed_at and observed_at)
       if (show && activeDateStr) {
         const start = properties.first_observed_at ? String(properties.first_observed_at).substring(0, 10) : '';
@@ -278,7 +284,7 @@ export default function MapComponent() {
         marker.remove();
       }
     });
-  }, [filter, currentDateIdx, dates]);
+  }, [filter, filterCorroboration, currentDateIdx, dates]);
 
   // ── Impact Radius Halo ────────────────────────────────────────────────────
   useEffect(() => {
@@ -372,27 +378,31 @@ export default function MapComponent() {
 
   // ── Impact Data Fetch ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (showAssets && selectedId !== null) {
-      setImpactLoading(true);
-      setImpactError(null);
-      fetch(`http://localhost:8000/api/v1/fires/${selectedId}/impact`)
-        .then((res) => {
-          if (!res.ok) throw new Error('Failed to fetch impact data');
-          return res.json();
-        })
-        .then((data) => {
-          setImpactData(data);
-          setImpactLoading(false);
-        })
-        .catch((err) => {
-          console.error(err);
-          setImpactError('Unable to load nearby assets.');
-          setImpactLoading(false);
-        });
-    } else {
+    if (!showAssets || selectedId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setImpactData(null);
       setImpactError(null);
+      return;
     }
+    const controller = new AbortController();
+    (async () => {
+      setImpactLoading(true);
+      setImpactError(null);
+      try {
+        const res = await fetch(`http://localhost:8000/api/v1/fires/${selectedId}/impact`, { signal: controller.signal });
+        if (!res.ok) throw new Error('Failed to fetch impact data');
+        const data = await res.json();
+        setImpactData(data);
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error(err);
+          setImpactError('Unable to load nearby assets.');
+        }
+      } finally {
+        setImpactLoading(false);
+      }
+    })();
+    return () => controller.abort();
   }, [showAssets, selectedId]);
 
   // ── Render Nearby Assets ──────────────────────────────────────────────────
@@ -404,9 +414,10 @@ export default function MapComponent() {
     if (showAssets && impactData) {
       (async () => {
         const L = await import('leaflet');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const layers: any[] = [];
 
-        impactData.assets.forEach((asset: any) => {
+        (impactData.assets as GeographicAsset[]).forEach((asset) => {
           if (showDownwindOnly && !asset.downwind) return;
           const isSelected = asset.id === selectedAssetId;
           
@@ -460,7 +471,7 @@ export default function MapComponent() {
           
           // Clicking marker on map selects it in panel
           marker.on('click', () => {
-             setSelectedAssetId(asset.id);
+             setSelectedAssetId(String(asset.id));
           });
           
           layers.push(marker);
@@ -469,7 +480,7 @@ export default function MapComponent() {
         assetsLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
       })();
     }
-  }, [showAssets, impactData, selectedAssetId]);
+  }, [showAssets, impactData, selectedAssetId, showDownwindOnly]);
 
   return (
     <div className="absolute inset-0 bg-zinc-950">
@@ -517,6 +528,26 @@ export default function MapComponent() {
                 {f}
               </button>
             ))}
+          </div>
+
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur flex flex-col gap-2">
+            <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Corroboration Level</h4>
+            <div className="text-sm flex gap-2 flex-wrap">
+              {['All', 'Strong', 'Partial', 'Weak'].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilterCorroboration(f)}
+                  aria-pressed={filterCorroboration === f}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
+                    filterCorroboration === f
+                      ? (f === 'Strong' ? 'bg-green-600 text-white font-medium' : f === 'Partial' ? 'bg-orange-600 text-white font-medium' : f === 'Weak' ? 'bg-red-600 text-white font-medium' : 'bg-blue-600 text-white font-medium')
+                      : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Impact/Asset Filters (only shown if assets are active) */}
@@ -621,7 +652,7 @@ export default function MapComponent() {
         impactLoading={impactLoading}
         impactError={impactError}
         selectedAssetId={selectedAssetId}
-        onAssetClick={(asset: any) => setSelectedAssetId(asset.id)}
+        onAssetClick={(asset: GeographicAsset) => setSelectedAssetId(String(asset.id))}
       />
     </div>
   );

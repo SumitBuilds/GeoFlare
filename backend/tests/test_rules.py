@@ -94,3 +94,12 @@ def test_low_confidence_event():
     result = classify_hotspot(data)
     assert result.classification == "unknown_uncertain"
     assert "Data quality flags present: Some issue." in result.evidence
+
+def test_corroboration_levels():
+    from app.engine.rules import calculate_corroboration
+    
+    assert calculate_corroboration(["NASA_FIRMS:VIIRS"]) == "Weak"
+    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:VIIRS"]) == "Weak"
+    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:MODIS"]) == "Partial"
+    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:MODIS", "INSAT"]) == "Strong"
+    assert calculate_corroboration([]) == "Weak"

@@ -3,6 +3,79 @@ from typing import Optional
 from ...engine.rules import HotspotInput, classify_hotspot
 from ...engine.weather import get_weather_for_location
 import json
+from datetime import datetime
+
+def build_corroboration_summary(all_obs_raw, hotspot_source):
+    all_obs = all_obs_raw
+    if isinstance(all_obs_raw, str):
+        try:
+            all_obs = json.loads(all_obs_raw)
+        except Exception:
+            all_obs = []
+    if not all_obs:
+        all_obs = []
+        
+    is_demo = hotspot_source and "Synthetic" in hotspot_source
+    
+    sources = [
+        {"id": "VIIRS", "name": "NASA FIRMS VIIRS"},
+        {"id": "MODIS", "name": "NASA FIRMS MODIS"},
+        {"id": "INSAT", "name": "INSAT-3D"},
+        {"id": "SENTINEL", "name": "Sentinel-3"},
+        {"id": "SYNTHETIC", "name": "Synthetic Demo"}
+    ]
+    
+    summary = []
+    obs_sources_strings = []
+    
+    for s in sources:
+        found = None
+        if s["id"] == "SYNTHETIC":
+            if is_demo:
+                found = {"observed_at": datetime.now().isoformat(), "confidence": "high", "data_quality_flags": "Demo scenario"}
+                obs_sources_strings.append("Synthetic Demo")
+        else:
+            for obs in all_obs:
+                if not obs: continue
+                inst = str(obs.get('instrument') or "").upper()
+                src = str(obs.get('source') or "").upper()
+                if s["id"] == inst or \
+                   (s["id"] == "INSAT" and ("INSAT" in inst or "INSAT" in src)) or \
+                   (s["id"] == "SENTINEL" and ("SENTINEL" in inst or "SENTINEL" in src)) or \
+                   (s["id"] == "MODIS" and ("MODIS" in inst or "MODIS" in src)) or \
+                   (s["id"] == "VIIRS" and ("VIIRS" in inst or "VIIRS" in src)):
+                    found = obs
+                    obs_sources_strings.append(f"{src}:{inst}")
+                    break
+                    
+        if found:
+            status = "Synthetic scenario" if s["id"] == "SYNTHETIC" else "Detected"
+            summary.append({
+                "source_name": s["name"],
+                "status": status,
+                "timestamp": found.get("observed_at"),
+                "confidence": found.get("confidence"),
+                "data_quality": found.get("data_quality_flags")
+            })
+        else:
+            if is_demo and s["id"] != "SYNTHETIC":
+                status = "Unavailable"
+            elif s["id"] in ["INSAT", "SENTINEL"]:
+                status = "Not connected"
+            elif s["id"] == "SYNTHETIC":
+                status = "No matching observation" 
+            else:
+                status = "No matching observation"
+                
+            summary.append({
+                "source_name": s["name"],
+                "status": status,
+                "timestamp": None,
+                "confidence": None,
+                "data_quality": None
+            })
+            
+    return summary, list(set(obs_sources_strings))
 
 router = APIRouter()
 
@@ -34,7 +107,8 @@ async def get_fires(
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
                 ) as distance_to_nearest_facility,
-                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality
+                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality,
+                obs.all_observations
             FROM hotspots h
             LEFT JOIN LATERAL (
                 SELECT source_event_id, instrument, observed_at, brightness_temperature, data_quality_flags
@@ -43,10 +117,25 @@ async def get_fires(
                 ORDER BY observed_at DESC NULLS LAST
                 LIMIT 1
             ) o ON true
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'source', f_obs.source,
+                        'instrument', f_obs.instrument,
+                        'observed_at', f_obs.observed_at,
+                        'confidence', f_obs.confidence,
+                        'data_quality_flags', f_obs.data_quality_flags
+                    )
+                ) as all_observations
+                FROM fire_observations f_obs
+                WHERE f_obs.fire_event_id = h.id
+            ) obs ON true
         """)
     
     features = []
     for row in rows:
+        summary, obs_sources = build_corroboration_summary(row['all_observations'], row['source'])
+        
         data = HotspotInput(
             temperature=row['temperature'],
             brightness_temperature=row['brightness_temperature'] or 0.0,
@@ -58,7 +147,8 @@ async def get_fires(
             industrial_zone_type=row['nearest_facility_type'],
             approx_movement=row['approx_movement'] or 0.0,
             persistence_confidence=row['persistence_confidence'] or 0.0,
-            data_quality_flags=row['data_quality']
+            data_quality_flags=row['data_quality'],
+            observation_sources=obs_sources
         )
         cls_output = classify_hotspot(data)
         
@@ -105,7 +195,9 @@ async def get_fires(
                 "severity": cls_output.severity,
                 "risk_score": cls_output.risk_score,
                 "score_components": cls_output.score_components,
-                "weather": weather.model_dump()
+                "weather": weather.model_dump(),
+                "corroboration": cls_output.corroboration,
+                "corroboration_summary": summary
             }
         }
         features.append(feature)
@@ -139,7 +231,8 @@ async def get_fire(fire_id: int, request: Request):
                     ORDER BY ST_Distance(h.location, f.location) ASC 
                     LIMIT 1
                 ) as distance_to_nearest_facility,
-                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality
+                o.source_event_id, o.instrument, o.observed_at as acq_time, o.brightness_temperature, o.data_quality_flags as data_quality,
+                obs.all_observations
             FROM hotspots h
             LEFT JOIN LATERAL (
                 SELECT source_event_id, instrument, observed_at, brightness_temperature, data_quality_flags
@@ -148,12 +241,27 @@ async def get_fire(fire_id: int, request: Request):
                 ORDER BY observed_at DESC NULLS LAST
                 LIMIT 1
             ) o ON true
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'source', f_obs.source,
+                        'instrument', f_obs.instrument,
+                        'observed_at', f_obs.observed_at,
+                        'confidence', f_obs.confidence,
+                        'data_quality_flags', f_obs.data_quality_flags
+                    )
+                ) as all_observations
+                FROM fire_observations f_obs
+                WHERE f_obs.fire_event_id = h.id
+            ) obs ON true
             WHERE h.id = $1
         """, fire_id)
         
     if not row:
         raise HTTPException(status_code=404, detail="Fire not found")
         
+    summary, obs_sources = build_corroboration_summary(row['all_observations'], row['source'])
+    
     data = HotspotInput(
         temperature=row['temperature'],
         brightness_temperature=row['brightness_temperature'] or 0.0,
@@ -165,7 +273,8 @@ async def get_fire(fire_id: int, request: Request):
         industrial_zone_type=row['nearest_facility_type'],
         approx_movement=row['approx_movement'] or 0.0,
         persistence_confidence=row['persistence_confidence'] or 0.0,
-        data_quality_flags=row['data_quality']
+        data_quality_flags=row['data_quality'],
+        observation_sources=obs_sources
     )
     cls_output = classify_hotspot(data)
     
@@ -207,7 +316,9 @@ async def get_fire(fire_id: int, request: Request):
             "severity": cls_output.severity,
             "risk_score": cls_output.risk_score,
             "score_components": cls_output.score_components,
-            "weather": weather.model_dump()
+            "weather": weather.model_dump(),
+            "corroboration": cls_output.corroboration,
+            "corroboration_summary": summary
         }
     }
 

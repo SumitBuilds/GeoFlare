@@ -14,6 +14,7 @@ class HotspotInput:
     approx_movement: float
     persistence_confidence: float
     data_quality_flags: Optional[str]
+    observation_sources: List[str] = field(default_factory=list)
 
 @dataclass
 class ClassificationOutput:
@@ -26,6 +27,24 @@ class ClassificationOutput:
     risk_score: float
     severity: str
     score_components: Dict[str, float]
+    corroboration: str = "Weak"
+
+def calculate_corroboration(sources: List[str]) -> str:
+    # sources is a list of strings like 'NASA_FIRMS:VIIRS', 'Synthetic Demo', etc.
+    # We count unique satellites/instruments.
+    # Note: 'Synthetic Demo' counts as 1 source if present.
+    unique_sources = set()
+    for src in sources:
+        if not src:
+            continue
+        unique_sources.add(src)
+        
+    count = len(unique_sources)
+    if count >= 3:
+        return "Strong"
+    elif count == 2:
+        return "Partial"
+    return "Weak"
 
 def classify_hotspot(data: HotspotInput) -> ClassificationOutput:
     rule_version = "2.0.0"
@@ -58,6 +77,9 @@ def classify_hotspot(data: HotspotInput) -> ClassificationOutput:
 
     if data.data_quality_flags and data.data_quality_flags != "0":
         evidence.append(f"Data quality flags present: {data.data_quality_flags}.")
+        
+    corroboration = calculate_corroboration(data.observation_sources)
+    evidence.append(f"Source Corroboration: {corroboration} ({len(set(data.observation_sources))} unique sources).")
         
     # Calculate Risk Score (Not a probability, 0-100 scale)
     # FRP contribution (max 40)
@@ -96,7 +118,8 @@ def classify_hotspot(data: HotspotInput) -> ClassificationOutput:
             rule_version=rule_version,
             risk_score=risk_score,
             severity=severity,
-            score_components=score_components
+            score_components=score_components,
+            corroboration=corroboration
         )
         
     # Rule 2: Natural Vegetation
@@ -111,7 +134,8 @@ def classify_hotspot(data: HotspotInput) -> ClassificationOutput:
             rule_version=rule_version,
             risk_score=risk_score,
             severity=severity,
-            score_components=score_components
+            score_components=score_components,
+            corroboration=corroboration
         )
         
     # Rule 3: Unknown/Uncertain
@@ -125,5 +149,6 @@ def classify_hotspot(data: HotspotInput) -> ClassificationOutput:
         rule_version=rule_version,
         risk_score=risk_score,
         severity=severity,
-        score_components=score_components
+        score_components=score_components,
+        corroboration=corroboration
     )

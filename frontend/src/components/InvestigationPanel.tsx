@@ -23,6 +23,14 @@ export interface WeatherContext {
   data_quality_flags?: string;
 }
 
+export interface CorroborationSource {
+  source_name: string;
+  status: string;
+  timestamp?: string;
+  confidence?: string;
+  data_quality?: string;
+}
+
 export interface HotspotProperties {
   id?: number;
   classification?: string;
@@ -58,6 +66,8 @@ export interface HotspotProperties {
   acq_time?: string;
   data_quality?: string;
   weather?: WeatherContext;
+  corroboration?: string;
+  corroboration_summary?: CorroborationSource[];
   raw_metadata?: unknown;
   [key: string]: unknown;
 }
@@ -501,6 +511,43 @@ export default function InvestigationPanel({
                    </div>
                 </div>
               )}
+            </div>
+
+            <SectionHead title="Source Corroboration" />
+            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-zinc-400">Corroboration Level</span>
+                <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded border ${
+                  p.corroboration === 'Strong' ? 'text-green-400 border-green-500/30 bg-green-500/10' :
+                  p.corroboration === 'Partial' ? 'text-orange-400 border-orange-500/30 bg-orange-500/10' :
+                  'text-red-400 border-red-500/30 bg-red-500/10'
+                }`}>
+                  {p.corroboration || 'Weak'}
+                </span>
+              </div>
+              <div className="space-y-1 mt-2">
+                {p.corroboration_summary?.map((src, idx) => (
+                  <div key={idx} className="text-[10px] border-b border-zinc-800 last:border-0 pb-1 last:pb-0">
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-zinc-300">{src.source_name}</span>
+                      <span className={`px-1 rounded ${
+                        src.status === 'Detected' ? 'bg-green-900/30 text-green-400' :
+                        src.status === 'Synthetic scenario' ? 'bg-purple-900/30 text-purple-400' :
+                        src.status === 'Not connected' ? 'bg-zinc-800 text-zinc-500' :
+                        'bg-red-900/30 text-red-400'
+                      }`}>
+                        {src.status}
+                      </span>
+                    </div>
+                    {src.status === 'Detected' && (
+                      <div className="flex justify-between text-zinc-500 mt-0.5">
+                        <span>{src.timestamp ? fmtDate(src.timestamp) : ''}</span>
+                        <span>{src.confidence ? `Conf: ${src.confidence}` : ''}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
             <SectionHead title="Evidence" />
