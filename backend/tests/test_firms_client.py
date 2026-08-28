@@ -44,9 +44,10 @@ async def test_process_firms_csv_and_deduplication():
 
 from unittest.mock import patch, MagicMock, AsyncMock
 
+@patch("app.engine.scheduler.start_scheduler")
 @patch("app.engine.firms_client.httpx.AsyncClient")
 @patch("app.api.v1.ingestion.FIRMS_ENABLED", True)
-def test_trigger_firms_ingestion_endpoint(mock_client_class):
+def test_trigger_firms_ingestion_endpoint(mock_client_class, mock_start_scheduler):
     mock_response = MagicMock()
     mock_response.text = get_sample_csv()
     mock_response.raise_for_status.return_value = None
@@ -68,9 +69,10 @@ def test_trigger_firms_ingestion_endpoint(mock_client_class):
         assert data["metrics"]["accepted"] == 1
         assert data["metrics"]["rejected"] == 1
 
+@patch("app.engine.scheduler.start_scheduler")
 @patch("app.engine.firms_client.httpx.AsyncClient")
 @patch("app.api.v1.ingestion.FIRMS_ENABLED", True)
-def test_firms_ingestion_empty_response(mock_client_class):
+def test_firms_ingestion_empty_response(mock_client_class, mock_start_scheduler):
     mock_response = MagicMock()
     # Provide only headers, no data rows
     mock_response.text = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n"
@@ -90,9 +92,10 @@ def test_firms_ingestion_empty_response(mock_client_class):
         assert data["metrics"]["fetched"] == 0
         assert data["metrics"]["accepted"] == 0
 
+@patch("app.engine.scheduler.start_scheduler")
 @patch("app.engine.firms_client.httpx.AsyncClient")
 @patch("app.api.v1.ingestion.FIRMS_ENABLED", True)
-def test_firms_ingestion_api_error(mock_client_class):
+def test_firms_ingestion_api_error(mock_client_class, mock_start_scheduler):
     import httpx
     
     mock_client_instance = MagicMock()
