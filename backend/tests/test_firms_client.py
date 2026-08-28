@@ -150,3 +150,33 @@ async def test_spatial_grouping():
             await conn.execute("DELETE FROM fire_observations WHERE fire_event_id IN (SELECT id FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL')")
             await conn.execute("DELETE FROM hotspots WHERE source = 'FIRMS_TEST_SPATIAL'")
         await pool.close()
+
+@pytest.mark.anyio
+async def test_firms_time_parsing_missing_leading_zero():
+    # Simulate a CSV row where acq_time is "822" instead of "0822"
+    pool = await asyncpg.create_pool(os.environ["DATABASE_URL"])
+    try:
+        # Use an isolated date and location so it doesn't group with real dev data
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM fire_observations WHERE source = 'FIRMS_TEST_TIME_PARSE'")
+            await conn.execute("DELETE FROM hotspots WHERE source = 'FIRMS_TEST_TIME_PARSE'")
+            
+        csv_data = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight\n"
+        csv_data += "25.0,85.0,310.5,1.0,1.0,2026-08-25,822,N,VIIRS,n,2.0,290.0,15.5,D\n"
+        
+        result = await process_firms_csv(csv_data, pool, "TEST_TIME_PARSE")
+        assert result["fetched"] == 1
+        assert result["accepted"] == 1
+        assert result["rejected"] == 0
+        
+        async with pool.acquire() as conn:
+            obs = await conn.fetchrow("SELECT observed_at FROM fire_observations WHERE source = 'FIRMS_TEST_TIME_PARSE' ORDER BY created_at DESC LIMIT 1")
+            # Should be 08:22 UTC
+            assert obs['observed_at'].hour == 8
+            assert obs['observed_at'].minute == 22
+            
+    finally:
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM fire_observations WHERE source = 'FIRMS_TEST_TIME_PARSE'")
+            await conn.execute("DELETE FROM hotspots WHERE source = 'FIRMS_TEST_TIME_PARSE'")
+        await pool.close()

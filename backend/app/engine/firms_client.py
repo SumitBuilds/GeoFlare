@@ -69,7 +69,7 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                         continue
                         
                     acq_date = row['acq_date']
-                    acq_time = row['acq_time']
+                    acq_time = row['acq_time'].zfill(4)
                     
                     # acq_date is YYYY-MM-DD, acq_time is HHMM
                     dt_str = f"{acq_date} {acq_time[:2]}:{acq_time[2:]}:00+00:00"
