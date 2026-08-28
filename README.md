@@ -194,7 +194,23 @@ pytest
 - Cloud cover and resolution limitations affect detection capabilities.
 - Rule-based classification instead of trained machine learning models.
 - Industrial facility mapping limitations (missing unmapped facilities).
-- No automatic emergency dispatch.
+
+## Continuous Integration (CI)
+GeoFlare AI uses GitHub Actions for continuous integration. The CI pipeline ensures code quality and functional correctness across the frontend and backend.
+
+### What is tested?
+- **Frontend**: Installs dependencies (`npm install`), runs linting (`npm run lint`), and builds the production bundle which includes strict typechecking (`npm run build`).
+- **Backend**: Installs dependencies, initializes an ephemeral PostGIS test database with schemas and mock data, and runs the test suite (`pytest`) with mocked external services (NASA FIRMS is bypassed).
+
+### How to inspect workflow results
+1. Navigate to the **Actions** tab in your GitHub repository.
+2. You will see a list of recent workflow runs (e.g., "CI Pipeline").
+3. Click on any run to view its details.
+4. From the summary page, click on either the **Frontend Lint & Build** or **Backend Tests** job to view the live terminal output and debug any failures.
+
+A pull request targeting `main` cannot be merged unless all checks pass.
+
+## Known Limitations (continued)
 - No production notification integration (e.g., WhatsApp).
 - No guarantee that every thermal anomaly is a fire.
 
