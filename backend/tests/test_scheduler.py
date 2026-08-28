@@ -69,7 +69,7 @@ async def test_scheduled_ingestion_calls_fetch_firms_data():
     mock_pool = MagicMock()
 
     with patch("app.engine.firms_client.fetch_firms_data", new_callable=AsyncMock) as mock_fetch:
-        mock_fetch.return_value = {"fetched": 10, "accepted": 5, "rejected": 5}
+        mock_fetch.return_value = {"fetched": 10, "accepted": 5, "rejected": 3, "deduplicated": 2}
 
         sched._stop_event = asyncio.Event()
 
@@ -83,7 +83,7 @@ async def test_scheduled_ingestion_calls_fetch_firms_data():
             "fetch_firms_data should be called immediately on first run, "
             "not after waiting for the interval"
         )
-        mock_fetch.assert_called_with(mock_pool)
+        mock_fetch.assert_any_call(mock_pool, source="VIIRS_SNPP_NRT")
 
         # Clean up
         sched._stop_event.set()

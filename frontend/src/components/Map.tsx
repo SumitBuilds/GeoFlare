@@ -181,12 +181,18 @@ export default function MapComponent() {
 
       let minDateStr = "9999-99-99";
       let maxDateStr = "0000-00-00";
+      let latestFirmsDateStr = "0000-00-00";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       firesData.features.forEach((f: any) => {
         const start = f.properties?.first_observed_at?.substring(0, 10);
         const end = f.properties?.observed_at?.substring(0, 10);
         if (start && start < minDateStr) minDateStr = start;
         if (end && end > maxDateStr) maxDateStr = end;
+
+        const source = f.properties?.source || '';
+        if (source.includes('FIRMS') && !source.includes('MOCK') && !source.includes('DEMO')) {
+          if (end && end > latestFirmsDateStr) latestFirmsDateStr = end;
+        }
       });
       const uniqueDates: string[] = [];
       if (minDateStr <= maxDateStr && maxDateStr !== "0000-00-00") {
@@ -201,7 +207,12 @@ export default function MapComponent() {
       if (!cancelled) {
         if (uniqueDates.length > 0) {
           setDates(uniqueDates);
-          setCurrentDateIdx(uniqueDates.length - 1);
+          let initialIdx = uniqueDates.length - 1;
+          if (latestFirmsDateStr !== "0000-00-00") {
+            const idx = uniqueDates.indexOf(latestFirmsDateStr);
+            if (idx !== -1) initialIdx = idx;
+          }
+          setCurrentDateIdx(initialIdx);
           setHasNoData(false);
         } else {
           setHasNoData(true);

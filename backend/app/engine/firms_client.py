@@ -46,6 +46,7 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
     records_fetched = 0
     records_accepted = 0
     records_rejected = 0
+    records_deduplicated = 0
     
     min_lon, min_lat, max_lon, max_lat = -180.0, -90.0, 180.0, 90.0
     if bbox:
@@ -69,7 +70,7 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                         continue
                         
                     acq_date = row['acq_date']
-                    acq_time = row['acq_time']
+                    acq_time = row['acq_time'].zfill(4)
                     
                     # acq_date is YYYY-MM-DD, acq_time is HHMM
                     dt_str = f"{acq_date} {acq_time[:2]}:{acq_time[2:]}:00+00:00"
@@ -131,7 +132,7 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                     if inserted == "INSERT 0 1":
                         records_accepted += 1
                     else:
-                        records_rejected += 1 # deduplicated
+                        records_deduplicated += 1
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
@@ -139,7 +140,7 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                     
             await update_source_health(conn, source_name, "active", records_fetched, records_accepted, records_rejected)
             
-    return {"fetched": records_fetched, "accepted": records_accepted, "rejected": records_rejected}
+    return {"fetched": records_fetched, "accepted": records_accepted, "rejected": records_rejected, "deduplicated": records_deduplicated}
 
 async def update_source_health(conn, source_name: str, status: str, fetched: int, accepted: int, rejected: int, error_msg: str = None):
     query = """
