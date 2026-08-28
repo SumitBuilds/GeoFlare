@@ -12,23 +12,7 @@ const FALLBACK_FIRES: { type: string; features: any[] } = {
   features: [],
 };
 
-const FALLBACK_ZONES = {
-  type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[[72.99, 19.12], [73.01, 19.12], [73.01, 19.10], [72.99, 19.10], [72.99, 19.12]]],
-      },
-      properties: {
-        id: 1,
-        name: 'Thane-Belapur Petrochemical Plant (Reference)',
-        facility_type: 'Refinery',
-      },
-    },
-  ],
-};
+// Nearby industrial zones are fetched per-hotspot, not loaded globally.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +56,8 @@ export default function MapComponent() {
   const windLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const assetsLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nearbyZonesLayerRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
@@ -102,6 +88,9 @@ export default function MapComponent() {
     setImpactData(null);
     setImpactError(null);
     setSelectedAssetId(null);
+    // Clear nearby zones when panel closes
+    nearbyZonesLayerRef.current?.remove();
+    nearbyZonesLayerRef.current = null;
   }, []);
 
   // ── Map init ──────────────────────────────────────────────────────────────
@@ -136,36 +125,18 @@ export default function MapComponent() {
       ).addTo(map);
 
       let firesData = FALLBACK_FIRES;
-      let zonesData = FALLBACK_ZONES;
 
       try {
-        const [firesRes, zonesRes] = await Promise.all([
-          fetch('http://localhost:8000/api/v1/fires').catch(() => null),
-          fetch('http://localhost:8000/api/v1/industrial-zones').catch(() => null),
-        ]);
+        const firesRes = await fetch('http://localhost:8000/api/v1/fires').catch(() => null);
         if (firesRes?.ok) firesData = await firesRes.json();
-        if (zonesRes?.ok) zonesData = await zonesRes.json();
       } catch (err) {
         console.warn('Backend unavailable, using fallback data', err);
       }
 
       if (cancelled) return;
 
-      // Industrial zone polygons
-      zonesData.features.forEach((feature) => {
-        if (feature.geometry.type === 'Polygon') {
-          const coords = (feature.geometry as { type: string; coordinates: number[][][] }).coordinates[0];
-          const latlngs: [number, number][] = coords.map(([lng, lat]) => [lat, lng]);
-          L.polygon(latlngs, {
-            color: '#1e293b',
-            fillColor: '#475569',
-            fillOpacity: 0.5,
-            weight: 2,
-          })
-            .addTo(map)
-            .bindTooltip(feature.properties?.name || 'Industrial Zone');
-        }
-      });
+      // Industrial zones are NOT loaded globally.
+      // They are fetched per-hotspot when the user selects one (see nearbyZones useEffect below).
 
       // Hotspot markers
       firesData.features.forEach((feature) => {
@@ -247,7 +218,9 @@ export default function MapComponent() {
       mapRef.current = null;
       markersRef.current = [];
       haloRef.current = null;
+      nearbyZonesLayerRef.current = null;
     };
+
   }, []);
 
   // ── Filter markers ────────────────────────────────────────────────────────
@@ -311,7 +284,64 @@ export default function MapComponent() {
     }
   }, [selectedId, showImpactRadius, impactData]);
 
+  // ── Nearby Industrial Zones (per selected hotspot) ────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    // Always clear previous zones first
+    nearbyZonesLayerRef.current?.remove();
+    nearbyZonesLayerRef.current = null;
+
+    if (selectedId === null) return;
+
+    const entry = markersRef.current.find((m) => m.id === selectedId);
+    if (!entry) return;
+
+    (async () => {
+      try {
+        const L = await import('leaflet');
+        const res = await fetch(
+          `http://localhost:8000/api/v1/industrial-zones/nearby?lat=${entry.lat}&lng=${entry.lng}&radius_m=5000`
+        );
+        if (!res.ok) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data: { type: string; features: any[] } = await res.json();
+        if (!data.features.length) return;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const layers: any[] = [];
+        data.features.forEach((feature) => {
+          if (feature.geometry?.type === 'Polygon') {
+            const coords = (feature.geometry.coordinates as number[][][])[0];
+            const latlngs: [number, number][] = coords.map(([lng, lat]) => [lat, lng]);
+            const poly = L.polygon(latlngs, {
+              color: '#334155',       // slate-700
+              fillColor: '#475569',   // slate-600
+              fillOpacity: 0.45,
+              weight: 2,
+              dashArray: '4 3',
+            });
+            const distLabel = feature.properties?.distance_m != null
+              ? ` — ${(feature.properties.distance_m / 1000).toFixed(1)} km away`
+              : '';
+            poly.bindTooltip(
+              `<b>${feature.properties?.name || 'Industrial Zone'}</b><br/><span style="font-size:11px;color:#94a3b8">${feature.properties?.facility_type || ''}${distLabel}</span>`,
+              { sticky: true }
+            );
+            layers.push(poly);
+          }
+        });
+
+        if (layers.length && mapRef.current) {
+          nearbyZonesLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+        }
+      } catch (err) {
+        console.warn('Could not load nearby industrial zones', err);
+      }
+    })();
+  }, [selectedId]);
+
   // ── Wind & Corridor ───────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!mapRef.current) return;
     windLayerRef.current?.remove();
