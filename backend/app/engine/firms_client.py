@@ -90,9 +90,9 @@ async def process_firms_csv(csv_text: str, pool: asyncpg.Pool, source_name: str,
                     existing_hotspot = await conn.fetchrow("""
                         SELECT id, first_observed_at, last_observed_at, observation_count, location 
                         FROM hotspots 
-                        WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($1, $2), 4326), $3)
+                        WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
                         AND (last_observed_at >= $4::timestamptz - interval '1 day' * $5)
-                        ORDER BY ST_Distance(location, ST_SetSRID(ST_MakePoint($1, $2), 4326)) ASC
+                        ORDER BY ST_Distance(location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) ASC
                         LIMIT 1
                     """, lon, lat, GROUPING_SPATIAL_DISTANCE_M, observed_at, GROUPING_TIME_WINDOW_DAYS)
                     

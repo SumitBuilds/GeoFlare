@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 FIRMS_ENABLED = os.getenv("FIRMS_ENABLED", "false").lower() == "true"
 FIRMS_MAP_KEY = os.getenv("FIRMS_MAP_KEY", "")

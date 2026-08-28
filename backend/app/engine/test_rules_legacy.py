@@ -7,12 +7,16 @@ class TestClassificationEngine(unittest.TestCase):
         # Should be <= 1000m, persistent, near refinery
         data = HotspotInput(
             temperature=1200.5,
+            brightness_temperature=1200.5,
             frp=45.2,
             confidence='high',
             distance_to_industrial=0, # inside
             days_observed=10,
             observation_count=24,
-            industrial_zone_type='Refinery'
+            industrial_zone_type='Refinery',
+            approx_movement=0.0,
+            persistence_confidence=0.0,
+            data_quality_flags="0"
         )
         result = classify_hotspot(data)
         self.assertEqual(result.classification, "industrial_fire_flare")
@@ -25,12 +29,16 @@ class TestClassificationEngine(unittest.TestCase):
         # Far away (>2km), not persistent
         data = HotspotInput(
             temperature=600.0,
+            brightness_temperature=600.0,
             frp=12.5,
             confidence='nominal',
             distance_to_industrial=8473.0, # As calculated by PostGIS earlier
             days_observed=1,
             observation_count=1,
-            industrial_zone_type=None
+            industrial_zone_type=None,
+            approx_movement=0.0,
+            persistence_confidence=0.0,
+            data_quality_flags="0"
         )
         result = classify_hotspot(data)
         self.assertEqual(result.classification, "natural_vegetation")
@@ -43,12 +51,16 @@ class TestClassificationEngine(unittest.TestCase):
         # ~1927m away, between 1km and 2km -> unknown
         data = HotspotInput(
             temperature=400.0,
+            brightness_temperature=400.0,
             frp=5.0,
             confidence='low',
             distance_to_industrial=1927.0, # As calculated by PostGIS earlier
             days_observed=2,
             observation_count=2,
-            industrial_zone_type=None
+            industrial_zone_type=None,
+            approx_movement=0.0,
+            persistence_confidence=0.0,
+            data_quality_flags="0"
         )
         result = classify_hotspot(data)
         self.assertEqual(result.classification, "unknown_uncertain")
@@ -59,16 +71,20 @@ class TestClassificationEngine(unittest.TestCase):
         # Near industrial, but not persistent
         data = HotspotInput(
             temperature=300.0,
+            brightness_temperature=300.0,
             frp=2.0,
             confidence='nominal',
             distance_to_industrial=500.0,
             days_observed=1,
             observation_count=1,
-            industrial_zone_type='Refinery'
+            industrial_zone_type='Refinery',
+            approx_movement=0.0,
+            persistence_confidence=0.0,
+            data_quality_flags="0"
         )
         result = classify_hotspot(data)
         self.assertEqual(result.classification, "unknown_uncertain")
-        self.assertTrue(any("Conflicting evidence" in ev for ev in result.evidence))
+        self.assertTrue(any("Evidence is conflicting" in ev for ev in result.evidence))
 
 if __name__ == '__main__':
     unittest.main()

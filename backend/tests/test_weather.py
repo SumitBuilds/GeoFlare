@@ -1,7 +1,9 @@
 import pytest
 from datetime import datetime
+from unittest.mock import patch
 from app.engine.weather import get_weather_for_location
 
+@patch("app.engine.weather.OPENWEATHER_API_KEY", "")
 def test_weather_generation_validity():
     lat, lon = 19.1, 72.9
     dt = datetime(2023, 1, 1)
@@ -17,6 +19,7 @@ def test_weather_generation_validity():
     assert "Demo Weather Generator" in weather.source
     assert "Simulated indicative data only" in weather.data_quality_flags
 
+@patch("app.engine.weather.OPENWEATHER_API_KEY", "")
 def test_weather_deterministic():
     lat, lon = 19.1, 72.9
     dt = datetime(2023, 1, 1)
