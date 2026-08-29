@@ -244,16 +244,67 @@ export default function InvestigationPanel({
   const [backendUp, setBackendUp] = useState(true);
   const [history, setHistory] = useState<Record<string, unknown>[]>([]);
   
+  // Nearest industries state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [nearestIndustries, setNearestIndustries] = useState<any>(null);
+  const [nearestLoading, setNearestLoading] = useState(false);
+  
   // Imagery state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [imagery, setImagery] = useState<any>(null);
   const [imageryLoading, setImageryLoading] = useState(false);
   const [imageryError, setImageryError] = useState<string | null>(null);
+  const [mapViewMode, setMapViewMode] = useState<'panel' | 'modal' | 'floating'>('panel');
 
   const miniMapContainer = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const miniMapRef = useRef<any>(null);
 
+  // Expanded map uses a completely separate container and map instance
+  const expandedMapContainer = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const expandedMapRef = useRef<any>(null);
+
+  // Floating window drag & resize state
+  const [floatPos, setFloatPos] = useState({ x: 80, y: window.innerHeight - 480 });
+  const [floatSize, setFloatSize] = useState({ w: 500, h: 400 });
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+
+  // Drag handlers for floating window
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: floatPos.x, startPosY: floatPos.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      setFloatPos({
+        x: dragRef.current.startPosX + (ev.clientX - dragRef.current.startX),
+        y: dragRef.current.startPosY + (ev.clientY - dragRef.current.startY),
+      });
+    };
+    const onUp = () => { dragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [floatPos]);
+
+  // Resize handlers for floating window
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, startW: floatSize.w, startH: floatSize.h };
+    const onMove = (ev: MouseEvent) => {
+      if (!resizeRef.current) return;
+      setFloatSize({
+        w: Math.max(300, resizeRef.current.startW + (ev.clientX - resizeRef.current.startX)),
+        h: Math.max(250, resizeRef.current.startH + (ev.clientY - resizeRef.current.startY)),
+      });
+    };
+    const onUp = () => { resizeRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [floatSize]);
+
+  // Initialize inline mini-map (panel view)
   useEffect(() => {
     if (!imagery || !miniMapContainer.current) return;
     
@@ -307,6 +358,83 @@ export default function InvestigationPanel({
     };
   }, [imagery, fallbackProps, data]);
 
+  // Create / destroy expanded map when mode changes
+  useEffect(() => {
+    if (mapViewMode === 'panel') {
+      // Destroy expanded map when returning to panel
+      if (expandedMapRef.current) {
+        expandedMapRef.current.remove();
+        expandedMapRef.current = null;
+      }
+      return;
+    }
+
+    if (!imagery || !expandedMapContainer.current) return;
+
+    let cancelled = false;
+
+    const initExpandedMap = async () => {
+      // Small delay to let the DOM render the container at its full size
+      await new Promise(r => setTimeout(r, 100));
+      if (cancelled || !expandedMapContainer.current) return;
+
+      // Destroy previous instance if any
+      if (expandedMapRef.current) {
+        expandedMapRef.current.remove();
+        expandedMapRef.current = null;
+      }
+
+      const L = await import('leaflet');
+      await import('leaflet/dist/leaflet.css');
+      if (cancelled || !expandedMapContainer.current) return;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fProps = fallbackProps as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pProps = (data || {}) as any;
+      const lat = pProps.latitude ?? pProps.lat ?? fProps?.latitude ?? fProps?.lat ?? fProps?.marker?.lat ?? 0;
+      const lng = pProps.longitude ?? pProps.lng ?? fProps?.longitude ?? fProps?.lng ?? fProps?.marker?.lng ?? 0;
+
+      const map = L.map(expandedMapContainer.current, {
+        center: [lat, lng],
+        zoom: 16,
+        zoomControl: true,
+        dragging: true,
+        scrollWheelZoom: true
+      });
+
+      L.tileLayer(imagery.wmts_url, {
+        maxZoom: imagery.max_zoom
+      }).addTo(map);
+
+      L.circleMarker([lat, lng], {
+        radius: 6,
+        color: '#ef4444',
+        fillColor: '#ef4444',
+        fillOpacity: 0.8,
+        weight: 2
+      }).addTo(map);
+
+      expandedMapRef.current = map;
+
+      // ResizeObserver for float resizing
+      const ro = new ResizeObserver(() => expandedMapRef.current?.invalidateSize());
+      ro.observe(expandedMapContainer.current);
+      expandedMapRef.current.__ro = ro;
+    };
+
+    initExpandedMap();
+
+    return () => {
+      cancelled = true;
+      if (expandedMapRef.current) {
+        if (expandedMapRef.current.__ro) expandedMapRef.current.__ro.disconnect();
+        expandedMapRef.current.remove();
+        expandedMapRef.current = null;
+      }
+    };
+  }, [mapViewMode, imagery, fallbackProps, data]);
+
   // ── Fetch detail on selection ──────────────────────────────────────────────
 
   useEffect(() => {
@@ -324,6 +452,8 @@ export default function InvestigationPanel({
         setHistory([]);
         setImagery(null);
         setImageryError(null);
+        setMapViewMode('panel');
+        setNearestIndustries(null);
         return;
       }
 
@@ -351,6 +481,20 @@ export default function InvestigationPanel({
             }
           } catch {
             // ignore
+          }
+
+          // Fetch nearest industries
+          try {
+            setNearestLoading(true);
+            const niRes = await fetch(`http://localhost:8000/api/v1/fires/${selectedId}/nearest-industries?limit=10`);
+            if (niRes.ok) {
+              const niData = await niRes.json();
+              setNearestIndustries(niData);
+            }
+          } catch {
+            // ignore
+          } finally {
+            setNearestLoading(false);
           }
 
           // Fetch imagery metadata
@@ -569,11 +713,19 @@ export default function InvestigationPanel({
                     <Row label="Cloud Cover" value={imagery.cloud_cover} />
                     <Row label="Processing" value={imagery.processing_timestamp} />
                   </div>
+                  {/* Inline mini-map (always stays in panel) */}
                   <div className="pt-2">
                     <div 
                       ref={miniMapContainer} 
-                      className="w-full h-40 rounded border border-zinc-700 overflow-hidden" 
-                    />
+                      onClick={() => mapViewMode === 'panel' && setMapViewMode('modal')}
+                      className="w-full h-40 rounded border border-zinc-700 cursor-pointer hover:border-zinc-500 transition-colors overflow-hidden relative"
+                    >
+                      {mapViewMode === 'panel' && (
+                        <div className="absolute top-2 right-2 z-[400] bg-zinc-900/80 p-1.5 rounded backdrop-blur-sm text-zinc-300 pointer-events-none border border-zinc-700 shadow-sm">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="text-[9px] text-zinc-600 text-center mt-2 px-1 leading-tight">
                     {imagery.attribution}
@@ -581,6 +733,63 @@ export default function InvestigationPanel({
                 </>
               ) : null}
             </div>
+
+            {/* Expanded map (modal or floating) - rendered as a portal-style overlay */}
+            {mapViewMode !== 'panel' && imagery && (
+              <>
+                {mapViewMode === 'modal' && (
+                  <div 
+                    className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm" 
+                    onClick={() => setMapViewMode('panel')}
+                  />
+                )}
+                <div 
+                  className={
+                    mapViewMode === 'modal' 
+                      ? "fixed inset-8 z-[9999] bg-zinc-950 border border-zinc-700 shadow-2xl rounded-lg flex flex-col overflow-hidden" 
+                      : "fixed z-[9999] bg-zinc-950 border border-zinc-700 shadow-2xl rounded-lg flex flex-col overflow-hidden"
+                  }
+                  style={mapViewMode === 'floating' ? { left: floatPos.x, top: floatPos.y, width: floatSize.w, height: floatSize.h } : undefined}
+                >
+                  {/* Title bar - draggable in floating mode */}
+                  <div 
+                    className={`flex justify-between items-center px-3 py-2 border-b border-zinc-800 shrink-0 ${mapViewMode === 'floating' ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+                    onMouseDown={mapViewMode === 'floating' ? onDragStart : undefined}
+                  >
+                    <h3 className="text-sm font-semibold text-zinc-200">Satellite Imagery Verification</h3>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setMapViewMode(mapViewMode === 'modal' ? 'floating' : 'modal'); }}
+                        className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors text-[10px] uppercase font-bold tracking-widest border border-zinc-700 px-2"
+                        aria-label="Toggle View"
+                      >
+                        {mapViewMode === 'modal' ? 'Float' : 'Fullscreen'}
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setMapViewMode('panel'); }}
+                        className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                        aria-label="Close expanded map"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Expanded map container - completely separate from inline mini-map */}
+                  <div 
+                    ref={expandedMapContainer} 
+                    className="w-full flex-1 overflow-hidden"
+                  />
+                  {/* Resize handle (floating mode only) */}
+                  {mapViewMode === 'floating' && (
+                    <div 
+                      onMouseDown={onResizeStart}
+                      className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-[10000]"
+                      style={{ background: 'linear-gradient(135deg, transparent 50%, #52525b 50%)' }}
+                    />
+                  )}
+                </div>
+              </>
+            )}
 
             <SectionHead title="Risk Assessment" />
             <Row label="Severity" value={fmt(p.severity)} />
@@ -630,6 +839,52 @@ export default function InvestigationPanel({
             <Row label="Facility Type" value={fmt(facilityType)} />
             <Row label="Distance to Industrial Zone" value={dist !== undefined && dist !== null ? `${Math.round(dist)} m` : 'Not available'} />
             <Row label="Within 1 km Halo" value={withinHalo} />
+
+            <SectionHead title="Top 10 Nearest Industries" />
+            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2 mt-1 mb-2">
+              {nearestLoading ? (
+                <div className="flex justify-center items-center py-3 text-zinc-500">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span className="text-xs">Loading nearest industries...</span>
+                </div>
+              ) : nearestIndustries && nearestIndustries.facilities ? (
+                <>
+                  <div className="text-[10px] text-zinc-500 mb-1">Showing {nearestIndustries.facilities.length} nearest industrial facilities</div>
+                  <div className="max-h-60 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {nearestIndustries.facilities.map((fac: {id: number; name: string; facility_type: string; distance_m: number; distance_km: number; within_1km_halo: boolean}, idx: number) => (
+                      <div 
+                        key={fac.id}
+                        className={`text-xs p-2 rounded border ${
+                          fac.within_1km_halo 
+                            ? 'border-red-500/40 bg-red-500/5' 
+                            : 'border-zinc-800 bg-zinc-900'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-zinc-500 font-mono text-[10px] shrink-0 w-4">#{idx + 1}</span>
+                            <span className="font-semibold text-zinc-200 truncate">{fac.name.replace(' (Reference)', '').replace(' [OSM]', '')}</span>
+                          </div>
+                          <span className={`shrink-0 font-mono text-[10px] font-bold ${
+                            fac.within_1km_halo ? 'text-red-400' : fac.distance_km < 5 ? 'text-orange-400' : 'text-zinc-400'
+                          }`}>
+                            {fac.distance_km < 1 ? `${Math.round(fac.distance_m)}m` : `${fac.distance_km}km`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded uppercase text-zinc-400">{fac.facility_type}</span>
+                          {fac.within_1km_halo && (
+                            <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-900/50">Inside 1km Halo</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-zinc-500 py-2 text-center">No industry data available.</p>
+              )}
+            </div>
 
             <SectionHead title="Potential Impact Context" />
             <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2">

@@ -81,3 +81,66 @@ async def get_nearby_industrial_zones(
         "type": "FeatureCollection",
         "features": features
     }
+
+
+@router.get("/fires/{fire_id}/nearest-industries")
+async def get_nearest_industries_to_fire(
+    request: Request,
+    fire_id: int,
+    limit: int = Query(10, description="Max number of results (default 10)"),
+):
+    """
+    Return the top N nearest industrial facilities to a specific hotspot.
+    Uses PostGIS ST_Distance on GEOGRAPHY types for accurate metre-distance.
+    No radius limit — returns the absolute closest facilities regardless of distance.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        # First get the hotspot location
+        hotspot = await conn.fetchrow("""
+            SELECT id, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng
+            FROM hotspots WHERE id = $1
+        """, fire_id)
+        
+        if not hotspot:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Hotspot not found")
+        
+        rows = await conn.fetch("""
+            SELECT
+                f.id,
+                f.name,
+                f.facility_type,
+                ST_AsGeoJSON(f.location)::json AS geometry,
+                ST_Y(ST_Centroid(f.location::geometry)) AS facility_lat,
+                ST_X(ST_Centroid(f.location::geometry)) AS facility_lng,
+                ST_Distance(
+                    f.location,
+                    h.location
+                ) AS distance_m
+            FROM industrial_facilities f, hotspots h
+            WHERE h.id = $1
+            ORDER BY distance_m ASC
+            LIMIT $2
+        """, fire_id, limit)
+
+    facilities = []
+    for row in rows:
+        facilities.append({
+            "id": row['id'],
+            "name": row['name'],
+            "facility_type": row['facility_type'],
+            "distance_m": round(float(row['distance_m']), 1),
+            "distance_km": round(float(row['distance_m']) / 1000, 2),
+            "facility_lat": float(row['facility_lat']),
+            "facility_lng": float(row['facility_lng']),
+            "within_1km_halo": float(row['distance_m']) <= 1000,
+        })
+
+    return {
+        "hotspot_id": fire_id,
+        "hotspot_lat": float(hotspot['lat']),
+        "hotspot_lng": float(hotspot['lng']),
+        "facilities": facilities,
+        "total": len(facilities),
+    }

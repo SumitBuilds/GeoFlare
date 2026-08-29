@@ -60,6 +60,8 @@ export default function MapComponent() {
   const assetsLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nearbyZonesLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const globalIndustriesLayerRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
@@ -70,6 +72,10 @@ export default function MapComponent() {
   const [showAssets, setShowAssets] = useState(false);
   const [showImpactRadius, setShowImpactRadius] = useState(true);
   const [showDownwindOnly, setShowDownwindOnly] = useState(false);
+  const [showIndustries, setShowIndustries] = useState(true);
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [allIndustries, setAllIndustries] = useState<any>(null);
   
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [impactData, setImpactData] = useState<any | null>(null);
@@ -137,8 +143,15 @@ export default function MapComponent() {
 
       if (cancelled) return;
 
-      // Industrial zones are NOT loaded globally.
-      // They are fetched per-hotspot when the user selects one (see nearbyZones useEffect below).
+      try {
+        const indRes = await fetch('http://localhost:8000/api/v1/industrial-zones').catch(() => null);
+        if (indRes?.ok) {
+          const indData = await indRes.json();
+          if (!cancelled) setAllIndustries(indData);
+        }
+      } catch (err) {
+        console.warn('Could not load industrial zones', err);
+      }
 
       // Hotspot markers
       firesData.features.forEach((feature) => {
@@ -240,6 +253,7 @@ export default function MapComponent() {
       markersRef.current = [];
       haloRef.current = null;
       nearbyZonesLayerRef.current = null;
+      globalIndustriesLayerRef.current = null;
     };
 
   }, []);
@@ -304,6 +318,44 @@ export default function MapComponent() {
       }
     }
   }, [selectedId, showImpactRadius, impactData]);
+
+  // ── Global Industrial Zones ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    globalIndustriesLayerRef.current?.remove();
+    globalIndustriesLayerRef.current = null;
+
+    if (showIndustries && allIndustries && allIndustries.features?.length) {
+      (async () => {
+        const L = await import('leaflet');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const layers: any[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        allIndustries.features.forEach((feature: any) => {
+          if (feature.geometry?.type === 'Polygon') {
+            const coords = feature.geometry.coordinates[0];
+            const latlngs: [number, number][] = coords.map(([lng, lat]: number[]) => [lat, lng]);
+            const poly = L.polygon(latlngs, {
+              color: '#3b82f6',       // blue-500
+              fillColor: '#60a5fa',   // blue-400
+              fillOpacity: 0.15,
+              weight: 1,
+              dashArray: '2 4',
+            });
+            poly.bindTooltip(
+              `<b>${feature.properties?.name?.replace(' (Reference)', '').replace(' [OSM]', '') || 'Industrial Zone'}</b><br/><span style="font-size:11px;color:#94a3b8">${feature.properties?.facility_type || ''}</span>`,
+              { sticky: true }
+            );
+            layers.push(poly);
+          }
+        });
+        if (layers.length && mapRef.current) {
+          globalIndustriesLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+          // Don't call bringToBack on layerGroup, it doesn't have it. Polygons will naturally render under markers in Leaflet's pane order.
+        }
+      })();
+    }
+  }, [showIndustries, allIndustries]);
 
   // ── Nearby Industrial Zones (per selected hotspot) ────────────────────────
   useEffect(() => {
@@ -599,6 +651,15 @@ export default function MapComponent() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Map Controls */}
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex flex-col gap-2">
+            <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Map Controls</h4>
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+              <input type="checkbox" checked={showIndustries} onChange={(e) => setShowIndustries(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900" />
+              Show Industrial Zones
+            </label>
           </div>
 
           {/* Impact/Asset Filters (only shown if assets are active) */}
