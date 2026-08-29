@@ -887,8 +887,8 @@ export default function InvestigationPanel({
             </div>
 
             <SectionHead title="Potential Impact Context" />
-            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2">
-              <div className="text-[10px] text-yellow-500 font-bold mb-1">
+            <div className="space-y-3 mt-1 mb-4">
+              <div className="text-[10px] text-yellow-500/70 text-center px-4 leading-tight">
                 This is an indicative geospatial assessment and is not an official evacuation instruction.
               </div>
               

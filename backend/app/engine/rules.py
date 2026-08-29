@@ -183,6 +183,47 @@ def classify_hotspot(data: HotspotInput, original_classification: Optional[str] 
             data_quality_flags=data_quality
         )
         
+    # Heuristic Fallback for Live Data without Land Cover Metadata
+    if is_far_from_industrial:
+        if data.frp >= 5.0:
+            evidence.append("Heuristic classification: High intensity (FRP >= 5) and far from industrial zones (> 2km).")
+            return ClassificationOutput(
+                classification="wildfire_forest_fire",
+                classification_label="Wildfire/Forest Fire",
+                subclass=None,
+                classification_confidence="low",
+                classification_method=classification_method,
+                model_probability=model_probability,
+                prototype_risk_score=prototype_risk_score,
+                taxonomy_version=taxonomy_version,
+                evidence=evidence,
+                explanation="Heuristic: Likely Wildfire due to higher thermal intensity far from known industry.",
+                severity=severity,
+                score_components=score_components,
+                original_classification=original_classification,
+                corroboration=corroboration,
+                data_quality_flags=data_quality
+            )
+        else:
+            evidence.append("Heuristic classification: Low intensity (FRP < 5) and far from industrial zones (> 2km).")
+            return ClassificationOutput(
+                classification="agricultural_burning",
+                classification_label="Agricultural Burning",
+                subclass=None,
+                classification_confidence="low",
+                classification_method=classification_method,
+                model_probability=model_probability,
+                prototype_risk_score=prototype_risk_score,
+                taxonomy_version=taxonomy_version,
+                evidence=evidence,
+                explanation="Heuristic: Likely Agricultural Burning due to low thermal intensity far from known industry.",
+                severity=severity,
+                score_components=score_components,
+                original_classification=original_classification,
+                corroboration=corroboration,
+                data_quality_flags=data_quality
+            )
+            
     # Rule Fallback: Unknown/Uncertain
     evidence.append("Missing or conflicting geographic/land-cover context.")
     explanation = "Unknown/Uncertain: Missing geographic context or land-cover evidence to confirm the nature of the thermal source."

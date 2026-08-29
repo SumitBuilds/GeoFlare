@@ -267,8 +267,10 @@ export default function MapComponent() {
       let show = filter === 'All';
       if (!show) {
         const n = classification;
-        if (filter === 'Industrial' && (n === 'Industrial Fire/Thermal Source' || n === 'industrial_thermal_source' || n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare' || n === 'Gas Flare' || n === 'gas_flare')) show = true;
-        if (filter === 'Natural' && (n === 'Wildfire/Forest Fire' || n === 'wildfire_forest_fire' || n === 'Agricultural Burning' || n === 'agricultural_burning' || n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Industrial' && (n === 'Industrial Fire/Thermal Source' || n === 'industrial_thermal_source' || n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare')) show = true;
+        if (filter === 'Gas Flare' && (n === 'Gas Flare' || n === 'gas_flare')) show = true;
+        if (filter === 'Natural' && (n === 'Wildfire/Forest Fire' || n === 'wildfire_forest_fire' || n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Agricultural' && (n === 'Agricultural Burning' || n === 'agricultural_burning')) show = true;
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
@@ -613,13 +615,13 @@ export default function MapComponent() {
 
       {/* Controls (top-left) */}
       {!loading && (
-        <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-4">
+        <div className="absolute top-4 left-4 z-[1000] flex flex-col items-start gap-4">
           {/* Filters */}
           <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex gap-2 flex-wrap">
-            {['All', 'Industrial', 'Natural', 'Unknown'].map((f) => (
+            {['All', 'Industrial', 'Gas Flare', 'Natural', 'Agricultural', 'Unknown'].map((f) => (
               <button
                 key={f}
-                id={`filter-btn-${f.toLowerCase()}`}
+                id={`filter-btn-${f.toLowerCase().replace(/\s+/g, '-')}`}
                 onClick={() => setFilter(f)}
                 aria-pressed={filter === f}
                 className={`px-3 py-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
