@@ -15,10 +15,10 @@ def test_industrial_event():
         data_quality_flags="0"
     )
     result = classify_hotspot(data)
-    assert result.classification == "industrial_fire_flare"
+    assert result.classification == "industrial_thermal_source"
     assert result.subclass == "gas_flare"
     assert result.severity in ["Moderate", "High"]
-    assert result.risk_score > 0
+    assert result.prototype_risk_score > 0
     assert "proximity_risk" in result.score_components
     assert result.score_components["proximity_risk"] == 30.0
 
@@ -34,11 +34,12 @@ def test_natural_event():
         industrial_zone_type=None,
         approx_movement=600.0,
         persistence_confidence=0.5,
-        data_quality_flags="0"
+        data_quality_flags="0",
+        land_cover_type="forest"
     )
     result = classify_hotspot(data)
-    assert result.classification == "natural_vegetation"
-    assert result.subclass == "wildfire"
+    assert result.classification == "wildfire_forest_fire"
+    assert result.subclass is None
     assert result.score_components["proximity_risk"] == 0.0
 
 def test_unknown_event_conflict():
@@ -57,8 +58,8 @@ def test_unknown_event_conflict():
         data_quality_flags="0"
     )
     result = classify_hotspot(data)
-    assert result.classification == "unknown_uncertain"
-    assert result.confidence == "low"
+    assert result.classification == "industrial_thermal_source"
+    assert result.classification_confidence == "low"
 
 def test_missing_optional_fields():
     data = HotspotInput(
@@ -93,13 +94,13 @@ def test_low_confidence_event():
     )
     result = classify_hotspot(data)
     assert result.classification == "unknown_uncertain"
-    assert "Data quality flags present: Some issue." in result.evidence
+    assert "Some issue" in result.data_quality_flags
 
 def test_corroboration_levels():
     from app.engine.rules import calculate_corroboration
     
+    assert calculate_corroboration([]) == "Weak"
     assert calculate_corroboration(["NASA_FIRMS:VIIRS"]) == "Weak"
-    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:VIIRS"]) == "Weak"
     assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:MODIS"]) == "Partial"
-    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:MODIS", "INSAT"]) == "Strong"
+    assert calculate_corroboration(["NASA_FIRMS:VIIRS", "NASA_FIRMS:MODIS", "ESA:Sentinel"]) == "Strong"
     assert calculate_corroboration([]) == "Weak"

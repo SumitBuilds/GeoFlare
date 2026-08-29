@@ -41,15 +41,21 @@ interface AlertItem {
 // ─── Normalisation ────────────────────────────────────────────────────────────
 
 const CLS_MAP: Record<string, string> = {
+  industrial_thermal_source: 'Industrial Fire/Thermal Source',
+  wildfire_forest_fire: 'Wildfire/Forest Fire',
+  agricultural_burning: 'Agricultural Burning',
+  unknown_uncertain: 'Unknown/Uncertain',
   industrial_fire_flare: 'Industrial Fire/Flare',
   natural_vegetation: 'Natural/Vegetation',
-  unknown_uncertain: 'Unknown/Uncertain',
 };
 const normCls = (v?: string) => (v ? CLS_MAP[v] || v : 'Unknown');
 
 const SUB_MAP: Record<string, string> = {
   gas_flare: 'Gas Flare',
   industrial_fire: 'Industrial Fire',
+  other_industrial_heat: 'Other Industrial Heat',
+  mining_activity: 'Mining Activity',
+  power_plant_thermal_source: 'Power Plant',
   wildfire: 'Wildfire',
 };
 const normSub = (v?: string | null) => (v ? SUB_MAP[v] || v : '—');
@@ -76,17 +82,18 @@ const fmtDist = (v: number | null): string => {
 
 const clsBadge = (cls: string): string => {
   const n = normCls(cls);
-  if (n === 'Industrial Fire/Flare') return 'bg-red-500/20 text-red-300 border border-red-500/40';
+  if (n === 'Industrial Fire/Thermal Source' || n === 'Industrial Fire/Flare') return 'bg-red-500/20 text-red-300 border border-red-500/40';
   if (n === 'Gas Flare') return 'bg-orange-500/20 text-orange-300 border border-orange-500/40';
-  if (n === 'Natural/Vegetation') return 'bg-green-500/20 text-green-300 border border-green-500/40';
+  if (n === 'Wildfire/Forest Fire' || n === 'Natural/Vegetation') return 'bg-green-500/20 text-green-300 border border-green-500/40';
+  if (n === 'Agricultural Burning') return 'bg-[#84cc16]/20 text-[#84cc16] border border-[#84cc16]/40';
   return 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40';
 };
 
 const clsIcon = (cls: string) => {
   const n = normCls(cls);
-  if (n === 'Industrial Fire/Flare' || n === 'Gas Flare')
+  if (n === 'Industrial Fire/Thermal Source' || n === 'Industrial Fire/Flare' || n === 'Gas Flare')
     return <Flame className="h-3.5 w-3.5" />;
-  if (n === 'Natural/Vegetation')
+  if (n === 'Wildfire/Forest Fire' || n === 'Agricultural Burning' || n === 'Natural/Vegetation')
     return <Leaf className="h-3.5 w-3.5" />;
   return <HelpCircle className="h-3.5 w-3.5" />;
 };
@@ -120,7 +127,7 @@ const ACTIONS = [
 // ─── Status filter chips ───────────────────────────────────────────────────────
 
 const STATUS_FILTERS = ['All', 'new', 'acknowledged', 'investigating', 'confirmed', 'resolved', 'false_positive'] as const;
-const CLS_FILTERS = ['All', 'Industrial Fire/Flare', 'Natural/Vegetation', 'Unknown/Uncertain'] as const;
+const CLS_FILTERS = ['All', 'Industrial Fire/Thermal Source', 'Wildfire/Forest Fire', 'Agricultural Burning', 'Unknown/Uncertain'] as const;
 
 // ─── Stats card ───────────────────────────────────────────────────────────────
 
@@ -382,8 +389,8 @@ export default function AlertCenter() {
   // ── Stats ──────────────────────────────────────────────────────────────────
   const stats = {
     total: alerts.length,
-    industrial: alerts.filter(a => normCls(a.classification) === 'Industrial Fire/Flare').length,
-    natural: alerts.filter(a => normCls(a.classification) === 'Natural/Vegetation').length,
+    industrial: alerts.filter(a => { const c = normCls(a.classification); return c.includes('Industrial'); }).length,
+    natural: alerts.filter(a => { const c = normCls(a.classification); return c.includes('Wildfire') || c.includes('Natural') || c.includes('Agricultural'); }).length,
     unknown: alerts.filter(a => normCls(a.classification) === 'Unknown/Uncertain').length,
     persistent: alerts.filter(a => {
       const dist = a.distance_to_industrial;

@@ -17,16 +17,18 @@ const FALLBACK_FIRES: { type: string; features: any[] } = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getClassColor = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return '#ef4444';
+  if (cls === 'Industrial Fire/Thermal Source' || cls === 'industrial_thermal_source' || cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return '#ef4444';
   if (cls === 'Gas Flare' || cls === 'gas_flare') return '#f97316';
-  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return '#22c55e';
+  if (cls === 'Wildfire/Forest Fire' || cls === 'wildfire_forest_fire' || cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return '#22c55e';
+  if (cls === 'Agricultural Burning' || cls === 'agricultural_burning') return '#84cc16';
   return '#eab308';
 };
 
 const getLabel = (cls: string) => {
-  if (cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return 'IND';
+  if (cls === 'Industrial Fire/Thermal Source' || cls === 'industrial_thermal_source' || cls === 'Industrial Fire/Flare' || cls === 'industrial_fire_flare') return 'IND';
   if (cls === 'Gas Flare' || cls === 'gas_flare') return 'FLR';
-  if (cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return 'NAT';
+  if (cls === 'Wildfire/Forest Fire' || cls === 'wildfire_forest_fire' || cls === 'Natural/Vegetation' || cls === 'natural_vegetation') return 'FOR';
+  if (cls === 'Agricultural Burning' || cls === 'agricultural_burning') return 'AGR';
   return '?';
 };
 
@@ -58,6 +60,8 @@ export default function MapComponent() {
   const assetsLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nearbyZonesLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const globalIndustriesLayerRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
@@ -68,6 +72,10 @@ export default function MapComponent() {
   const [showAssets, setShowAssets] = useState(false);
   const [showImpactRadius, setShowImpactRadius] = useState(true);
   const [showDownwindOnly, setShowDownwindOnly] = useState(false);
+  const [showIndustries, setShowIndustries] = useState(true);
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [allIndustries, setAllIndustries] = useState<any>(null);
   
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [impactData, setImpactData] = useState<any | null>(null);
@@ -135,8 +143,15 @@ export default function MapComponent() {
 
       if (cancelled) return;
 
-      // Industrial zones are NOT loaded globally.
-      // They are fetched per-hotspot when the user selects one (see nearbyZones useEffect below).
+      try {
+        const indRes = await fetch('http://localhost:8000/api/v1/industrial-zones').catch(() => null);
+        if (indRes?.ok) {
+          const indData = await indRes.json();
+          if (!cancelled) setAllIndustries(indData);
+        }
+      } catch (err) {
+        console.warn('Could not load industrial zones', err);
+      }
 
       // Hotspot markers
       firesData.features.forEach((feature) => {
@@ -181,8 +196,22 @@ export default function MapComponent() {
 
       let minDateStr = "9999-99-99";
       let maxDateStr = "0000-00-00";
+      let latestFirmsDateStr = "0000-00-00";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       firesData.features.forEach((f: any) => {
+        const source = f.properties?.source || '';
+
+        // Track the latest FIRMS live date regardless of its date bounds
+        if (source.includes('FIRMS') && !source.includes('MOCK') && !source.includes('DEMO') && !source.includes('TEST')) {
+          const end = f.properties?.observed_at?.substring(0, 10);
+          if (end && end > latestFirmsDateStr) latestFirmsDateStr = end;
+        }
+
+        // Exclude synthetic/test records from stretching the timeline boundaries
+        if (source.includes('MOCK') || source.includes('DEMO') || source.includes('TEST')) {
+          return;
+        }
+
         const start = f.properties?.first_observed_at?.substring(0, 10);
         const end = f.properties?.observed_at?.substring(0, 10);
         if (start && start < minDateStr) minDateStr = start;
@@ -201,7 +230,12 @@ export default function MapComponent() {
       if (!cancelled) {
         if (uniqueDates.length > 0) {
           setDates(uniqueDates);
-          setCurrentDateIdx(uniqueDates.length - 1);
+          let initialIdx = uniqueDates.length - 1;
+          if (latestFirmsDateStr !== "0000-00-00") {
+            const idx = uniqueDates.indexOf(latestFirmsDateStr);
+            if (idx !== -1) initialIdx = idx;
+          }
+          setCurrentDateIdx(initialIdx);
           setHasNoData(false);
         } else {
           setHasNoData(true);
@@ -219,6 +253,7 @@ export default function MapComponent() {
       markersRef.current = [];
       haloRef.current = null;
       nearbyZonesLayerRef.current = null;
+      globalIndustriesLayerRef.current = null;
     };
 
   }, []);
@@ -232,8 +267,10 @@ export default function MapComponent() {
       let show = filter === 'All';
       if (!show) {
         const n = classification;
-        if (filter === 'Industrial' && (n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare' || n === 'Gas Flare' || n === 'gas_flare')) show = true;
-        if (filter === 'Natural' && (n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Industrial' && (n === 'Industrial Fire/Thermal Source' || n === 'industrial_thermal_source' || n === 'Industrial Fire/Flare' || n === 'industrial_fire_flare')) show = true;
+        if (filter === 'Gas Flare' && (n === 'Gas Flare' || n === 'gas_flare')) show = true;
+        if (filter === 'Natural' && (n === 'Wildfire/Forest Fire' || n === 'wildfire_forest_fire' || n === 'Natural/Vegetation' || n === 'natural_vegetation')) show = true;
+        if (filter === 'Agricultural' && (n === 'Agricultural Burning' || n === 'agricultural_burning')) show = true;
         if (filter === 'Unknown' && (n === 'Unknown/Uncertain' || n === 'unknown_uncertain')) show = true;
       }
       
@@ -283,6 +320,44 @@ export default function MapComponent() {
       }
     }
   }, [selectedId, showImpactRadius, impactData]);
+
+  // ── Global Industrial Zones ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    globalIndustriesLayerRef.current?.remove();
+    globalIndustriesLayerRef.current = null;
+
+    if (showIndustries && allIndustries && allIndustries.features?.length) {
+      (async () => {
+        const L = await import('leaflet');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const layers: any[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        allIndustries.features.forEach((feature: any) => {
+          if (feature.geometry?.type === 'Polygon') {
+            const coords = feature.geometry.coordinates[0];
+            const latlngs: [number, number][] = coords.map(([lng, lat]: number[]) => [lat, lng]);
+            const poly = L.polygon(latlngs, {
+              color: '#3b82f6',       // blue-500
+              fillColor: '#60a5fa',   // blue-400
+              fillOpacity: 0.15,
+              weight: 1,
+              dashArray: '2 4',
+            });
+            poly.bindTooltip(
+              `<b>${feature.properties?.name?.replace(' (Reference)', '').replace(' [OSM]', '') || 'Industrial Zone'}</b><br/><span style="font-size:11px;color:#94a3b8">${feature.properties?.facility_type || ''}</span>`,
+              { sticky: true }
+            );
+            layers.push(poly);
+          }
+        });
+        if (layers.length && mapRef.current) {
+          globalIndustriesLayerRef.current = L.layerGroup(layers).addTo(mapRef.current);
+          // Don't call bringToBack on layerGroup, it doesn't have it. Polygons will naturally render under markers in Leaflet's pane order.
+        }
+      })();
+    }
+  }, [showIndustries, allIndustries]);
 
   // ── Nearby Industrial Zones (per selected hotspot) ────────────────────────
   useEffect(() => {
@@ -540,13 +615,13 @@ export default function MapComponent() {
 
       {/* Controls (top-left) */}
       {!loading && (
-        <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-4">
+        <div className="absolute top-4 left-4 z-[1000] flex flex-col items-start gap-4">
           {/* Filters */}
           <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex gap-2 flex-wrap">
-            {['All', 'Industrial', 'Natural', 'Unknown'].map((f) => (
+            {['All', 'Industrial', 'Gas Flare', 'Natural', 'Agricultural', 'Unknown'].map((f) => (
               <button
                 key={f}
-                id={`filter-btn-${f.toLowerCase()}`}
+                id={`filter-btn-${f.toLowerCase().replace(/\s+/g, '-')}`}
                 onClick={() => setFilter(f)}
                 aria-pressed={filter === f}
                 className={`px-3 py-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 ${
@@ -580,6 +655,15 @@ export default function MapComponent() {
             </div>
           </div>
 
+          {/* Map Controls */}
+          <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex flex-col gap-2">
+            <h4 className="font-bold text-white text-[10px] uppercase tracking-wide">Map Controls</h4>
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 hover:text-white">
+              <input type="checkbox" checked={showIndustries} onChange={(e) => setShowIndustries(e.target.checked)} className="rounded bg-zinc-800 border-zinc-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900" />
+              Show Industrial Zones
+            </label>
+          </div>
+
           {/* Impact/Asset Filters (only shown if assets are active) */}
           {showAssets && (
              <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-2 shadow-lg backdrop-blur text-sm flex flex-col gap-2">
@@ -599,9 +683,10 @@ export default function MapComponent() {
           <div className="bg-zinc-900/90 border border-zinc-700 rounded-lg p-3 shadow-lg backdrop-blur text-sm text-zinc-200 w-52 max-h-[40vh] overflow-y-auto custom-scrollbar">
             <h4 className="font-bold mb-2 text-white text-[10px] uppercase tracking-wide">Legend</h4>
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Flare</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-red-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">IND</div><span className="text-xs">Industrial Fire/Thermal Source</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-orange-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FLR</div><span className="text-xs">Gas Flare</span></div>
-              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">NAT</div><span className="text-xs">Natural/Vegetation</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-green-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">FOR</div><span className="text-xs">Wildfire/Forest Fire</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-[#84cc16] border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">AGR</div><span className="text-xs">Agricultural Burning</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-yellow-500 border border-black shrink-0 flex items-center justify-center text-[9px] font-bold text-white">?</div><span className="text-xs">Unknown/Uncertain</span></div>
               
               <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-700">

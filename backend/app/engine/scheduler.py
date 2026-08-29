@@ -22,9 +22,10 @@ async def _poll_loop(pool, interval_minutes: int) -> None:
     """Run fetch_firms_data() immediately on start, then every interval_minutes."""
     # Lazy import to avoid circular dependencies at module load time
     from app.engine.firms_client import fetch_firms_data
+    from app.core.config import FIRMS_SOURCES
 
     logger.info(
-        "FIRMS scheduler started — polling every %d minutes", interval_minutes
+        "FIRMS scheduler started — polling every %d minutes for sources: %s", interval_minutes, FIRMS_SOURCES
     )
 
     first_run = True
@@ -50,20 +51,23 @@ async def _poll_loop(pool, interval_minutes: int) -> None:
             continue
 
         async with ingestion_lock:
-            try:
-                logger.info(
-                    "Scheduled FIRMS ingestion starting at %s",
-                    datetime.now(timezone.utc).isoformat(),
-                )
-                result = await fetch_firms_data(pool)
-                logger.info(
-                    "Scheduled FIRMS ingestion complete: fetched=%s accepted=%s rejected=%s",
-                    result.get("fetched"),
-                    result.get("accepted"),
-                    result.get("rejected"),
-                )
-            except Exception:
-                logger.exception("Scheduled FIRMS ingestion failed")
+            for source in FIRMS_SOURCES:
+                try:
+                    logger.info(
+                        "Scheduled FIRMS ingestion starting for %s at %s",
+                        source,
+                        datetime.now(timezone.utc).isoformat(),
+                    )
+                    result = await fetch_firms_data(pool, source=source)
+                    logger.info(
+                        "Scheduled FIRMS ingestion complete for %s: fetched=%s accepted=%s rejected=%s",
+                        source,
+                        result.get("fetched"),
+                        result.get("accepted"),
+                        result.get("rejected"),
+                    )
+                except Exception:
+                    logger.exception("Scheduled FIRMS ingestion failed for %s", source)
 
     logger.info("FIRMS scheduler stopped")
 

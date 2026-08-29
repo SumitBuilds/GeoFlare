@@ -19,15 +19,15 @@ def test_get_fires():
         assert data["type"] == "FeatureCollection"
         if len(data["features"]) > 0:
             first_feature = data["features"][0]["properties"]
-            assert "is_demo" not in first_feature
+            assert "is_demo" in first_feature
             
 def test_get_fires_filtered():
     with TestClient(app) as client:
-        response = client.get("/api/v1/fires?classification=industrial_fire_flare")
+        response = client.get("/api/v1/fires?classification=industrial_thermal_source")
         assert response.status_code == 200
         data = response.json()
         if len(data["features"]) > 0:
-            assert data["features"][0]["properties"]["classification"] == "industrial_fire_flare"
+            assert data["features"][0]["properties"]["classification"] == "industrial_thermal_source"
             assert data["features"][0]["properties"]["classification_confidence"] == "high"
 
 def test_get_fire_by_id():
