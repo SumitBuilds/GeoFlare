@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   X,
   Loader2,
@@ -156,6 +156,15 @@ const fmtDate = (v: unknown): string => {
   }
 };
 
+const fmtDateUTC = (v: unknown): string => {
+  if (!v || typeof v !== 'string') return 'Not available';
+  try {
+    return new Date(v).toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  } catch {
+    return v;
+  }
+};
+
 const fmtConf = (v: unknown): string => {
   if (typeof v === 'number') return `${Math.round(v * 100)}%`;
   if (typeof v === 'string') {
@@ -234,8 +243,72 @@ export default function InvestigationPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState(true);
   const [history, setHistory] = useState<Record<string, unknown>[]>([]);
+  
+  // Imagery state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [imagery, setImagery] = useState<any>(null);
+  const [imageryLoading, setImageryLoading] = useState(false);
+  const [imageryError, setImageryError] = useState<string | null>(null);
+
+  const miniMapContainer = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const miniMapRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!imagery || !miniMapContainer.current) return;
+    
+    let cancelled = false;
+    
+    const initMiniMap = async () => {
+      const L = await import('leaflet');
+      await import('leaflet/dist/leaflet.css');
+      if (cancelled) return;
+      
+      if (!miniMapRef.current && miniMapContainer.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fProps = fallbackProps as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pProps = (data || {}) as any;
+        const lat = pProps.latitude ?? pProps.lat ?? fProps?.latitude ?? fProps?.lat ?? fProps?.marker?.lat ?? 0;
+        const lng = pProps.longitude ?? pProps.lng ?? fProps?.longitude ?? fProps?.lng ?? fProps?.marker?.lng ?? 0;
+        
+        const map = L.map(miniMapContainer.current, { 
+          center: [lat, lng], 
+          zoom: 16,
+          zoomControl: true,
+          dragging: true,
+          scrollWheelZoom: true
+        });
+        
+        L.tileLayer(imagery.wmts_url, {
+          maxZoom: imagery.max_zoom
+        }).addTo(map);
+
+        L.circleMarker([lat, lng], {
+          radius: 6,
+          color: '#ef4444',
+          fillColor: '#ef4444',
+          fillOpacity: 0.8,
+          weight: 2
+        }).addTo(map);
+
+        miniMapRef.current = map;
+      }
+    };
+    
+    initMiniMap();
+    
+    return () => {
+      cancelled = true;
+      if (miniMapRef.current) {
+        miniMapRef.current.remove();
+        miniMapRef.current = null;
+      }
+    };
+  }, [imagery, fallbackProps, data]);
 
   // ── Fetch detail on selection ──────────────────────────────────────────────
+
   useEffect(() => {
     let cancelled = false;
 
@@ -249,6 +322,8 @@ export default function InvestigationPanel({
         setAlertStatus(null);
         setActionError(null);
         setHistory([]);
+        setImagery(null);
+        setImageryError(null);
         return;
       }
 
@@ -276,6 +351,33 @@ export default function InvestigationPanel({
             }
           } catch {
             // ignore
+          }
+
+          // Fetch imagery metadata
+          if (props.observed_at) {
+            try {
+              setImageryLoading(true);
+              setImageryError(null);
+              const dateStr = new Date(props.observed_at).toISOString().split('T')[0];
+              // fallback for lat/lng
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fProps = fallbackProps as any;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const pProps = props as any;
+              const lat = pProps.latitude ?? pProps.lat ?? fProps?.latitude ?? fProps?.lat ?? fProps?.marker?.lat ?? 0;
+              const lng = pProps.longitude ?? pProps.lng ?? fProps?.longitude ?? fProps?.lng ?? fProps?.marker?.lng ?? 0;
+              const imgRes = await fetch(`http://localhost:8000/api/v1/imagery/preview?date=${dateStr}&lat=${lat}&lng=${lng}`);
+              if (imgRes.ok) {
+                const imgData = await imgRes.json();
+                setImagery(imgData);
+              } else {
+                setImageryError('Imagery unavailable');
+              }
+            } catch (err) {
+              setImageryError('Imagery unavailable');
+            } finally {
+              setImageryLoading(false);
+            }
           }
         } catch (err) {
           if (cancelled) return;
@@ -447,6 +549,39 @@ export default function InvestigationPanel({
             <Row label="Persistence Confidence" value={fmt(p.persistence_confidence)} />
             <Row label="Approximate Movement" value={p.approx_movement !== undefined && p.approx_movement !== null ? `${p.approx_movement} m` : 'Not available'} />
 
+            <SectionHead title="Satellite Verification" />
+            <div className="bg-zinc-950 p-2 rounded border border-zinc-800 space-y-2 mt-1 mb-2">
+              {imageryLoading ? (
+                <div className="flex justify-center items-center py-4 text-zinc-500">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span className="text-xs">Checking imagery availability...</span>
+                </div>
+              ) : imageryError ? (
+                <p className="text-xs text-yellow-500 font-medium py-2 text-center bg-yellow-500/10 rounded">
+                  Imagery unavailable.
+                </p>
+              ) : imagery ? (
+                <>
+                  <div className="space-y-1">
+                    <Row label="Source" value={imagery.source_name} />
+                    <Row label="Image Date" value={imagery.imagery_date} />
+                    <Row label="FIRMS Date" value={fmtDate(p.observed_at)} />
+                    <Row label="Cloud Cover" value={imagery.cloud_cover} />
+                    <Row label="Processing" value={imagery.processing_timestamp} />
+                  </div>
+                  <div className="pt-2">
+                    <div 
+                      ref={miniMapContainer} 
+                      className="w-full h-40 rounded border border-zinc-700 overflow-hidden" 
+                    />
+                  </div>
+                  <div className="text-[9px] text-zinc-600 text-center mt-2 px-1 leading-tight">
+                    {imagery.attribution}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
             <SectionHead title="Risk Assessment" />
             <Row label="Severity" value={fmt(p.severity)} />
             <Row label="Risk Score (Prototype Score)" value={p.risk_score !== undefined && p.risk_score !== null ? `${p.risk_score} / 100` : 'Not available'} />
@@ -572,19 +707,23 @@ export default function InvestigationPanel({
                 </span>
               </div>
               <div className="space-y-1 mt-2">
-                {p.corroboration_summary?.map((src, idx) => (
-                  <div key={idx} className="text-[10px] border-b border-zinc-800 last:border-0 pb-1 last:pb-0">
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-zinc-300">{src.source_name}</span>
-                      <span className={`px-1 rounded ${
-                        src.status === 'Detected' ? 'bg-green-900/30 text-green-400' :
-                        src.status === 'Synthetic scenario' ? 'bg-purple-900/30 text-purple-400' :
-                        src.status === 'Not connected' ? 'bg-zinc-800 text-zinc-500' :
-                        'bg-red-900/30 text-red-400'
-                      }`}>
-                        {src.status}
-                      </span>
-                    </div>
+                {p.corroboration_summary?.map((src, idx) => {
+                  let displayStatus = src.status;
+                  if (displayStatus === 'Not connected') displayStatus = 'No matching observation';
+
+                  return (
+                    <div key={idx} className="text-[10px] border-b border-zinc-800 last:border-0 pb-1 last:pb-0">
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-zinc-300">{src.source_name}</span>
+                        <span className={`px-1 rounded ${
+                          src.status === 'Detected' ? 'bg-green-900/30 text-green-400' :
+                          src.status === 'Synthetic scenario' ? 'bg-purple-900/30 text-purple-400' :
+                          src.status === 'Not connected' ? 'bg-zinc-800 text-zinc-500' :
+                          'bg-red-900/30 text-red-400'
+                        }`}>
+                          {displayStatus}
+                        </span>
+                      </div>
                     {src.status === 'Detected' && (
                       <div className="flex justify-between text-zinc-500 mt-0.5">
                         <span>{src.timestamp ? fmtDate(src.timestamp) : ''}</span>
@@ -592,7 +731,8 @@ export default function InvestigationPanel({
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -655,23 +795,55 @@ export default function InvestigationPanel({
               </>
             )}
 
-            <SectionHead title="Data Verification" />
+            <SectionHead title="FIRMS Verification" />
             <div className="mt-1 bg-zinc-950 p-2 rounded border border-zinc-800 text-[10px] font-mono text-zinc-400 space-y-1">
               <div className="flex justify-between">
-                <span>Source ID:</span>
-                <span className="text-zinc-300">{fmt(p.source)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Event ID:</span>
-                <span className="text-zinc-300">{fmt(p.source_event_id || `NASA_FIRMS_${p.id}`)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Acq. Timestamp:</span>
-                <span className="text-zinc-300">{fmtDate(p.observed_at)}</span>
+                <span>Source:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.source)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Satellite:</span>
-                <span className="text-zinc-300">{fmt(p.satellite)}</span>
+                <span className="text-zinc-300 text-right">{fmt(p.satellite)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Instrument:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.instrument)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Latitude:</span>
+                <span className="text-zinc-300 text-right">{p.latitude !== undefined ? Number(p.latitude).toFixed(5) : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Longitude:</span>
+                <span className="text-zinc-300 text-right">{p.longitude !== undefined ? Number(p.longitude).toFixed(5) : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Acquisition Date:</span>
+                <span className="text-zinc-300 text-right">{p.observed_at ? new Date(p.observed_at).toISOString().split('T')[0] : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Acquisition Time (UTC):</span>
+                <span className="text-zinc-300 text-right">{fmtDateUTC(p.observed_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Local Time:</span>
+                <span className="text-zinc-300 text-right">{fmtDate(p.observed_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>FRP:</span>
+                <span className="text-zinc-300 text-right">{p.frp !== undefined && p.frp !== null ? `${p.frp} MW` : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Brightness:</span>
+                <span className="text-zinc-300 text-right">{temp !== undefined && temp !== null ? `${temp} K` : 'Not available'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Confidence:</span>
+                <span className="text-zinc-300 text-right">{fmt(sourceConf)}</span>
+              </div>
+              <div className="flex justify-between pt-1 mt-1 border-t border-zinc-800">
+                <span>Source ID:</span>
+                <span className="text-zinc-300 text-right">{fmt(p.source_event_id || `NASA_FIRMS_${p.id}`)}</span>
               </div>
             </div>
           </>

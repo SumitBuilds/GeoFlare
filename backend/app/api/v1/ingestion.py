@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from app.core.config import FIRMS_ENABLED
 from app.engine.firms_client import fetch_firms_data
+from app.engine.scheduler import ingestion_lock
 
 router = APIRouter()
 
@@ -9,12 +10,28 @@ async def trigger_firms_ingestion(request: Request, background_tasks: Background
     if not FIRMS_ENABLED:
         raise HTTPException(status_code=403, detail="FIRMS ingestion is disabled.")
     
+    if ingestion_lock.locked():
+        raise HTTPException(status_code=409, detail="Another ingestion is already in progress.")
+
+    from app.core.config import FIRMS_SOURCES
+    
     pool = request.app.state.pool
-    try:
-        result = await fetch_firms_data(pool, source=source)
-        return {"status": "success", "metrics": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async with ingestion_lock:
+        try:
+            if source:
+                result = await fetch_firms_data(pool, source=source)
+                return {"status": "success", "metrics": {source: result}}
+            else:
+                combined_metrics = {}
+                for src in FIRMS_SOURCES:
+                    try:
+                        res = await fetch_firms_data(pool, source=src)
+                        combined_metrics[src] = res
+                    except Exception as e:
+                        combined_metrics[src] = {"error": str(e)}
+                return {"status": "success", "metrics": combined_metrics}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/ingestion/status")
